@@ -285,6 +285,11 @@ const styles = StyleSheet.create({
   label: {
     marginBottom: 5,
     color: '#fff',
+    backgroundColor: '#2E7D32',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
   },
   input: {
     borderWidth: 1,
