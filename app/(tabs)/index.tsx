@@ -5,7 +5,7 @@ import { ImageBackground, StyleSheet, TouchableOpacity } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
-const background = require('@/assets/images/nutri-logo.png');
+const background = require('@/assets/images/NutriSummaryFrontPage.png');
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -31,12 +31,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    width: '100%',
+    height: '100%',
   },
   overlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
     width: '100%',
   },
   startButton: {
