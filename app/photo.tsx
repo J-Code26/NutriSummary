@@ -19,6 +19,7 @@ function WebCamera({
   const [isScanning, setIsScanning] = React.useState(false);
   const [debugInfo, setDebugInfo] = React.useState('Initializing...');
   const detectedRef = useRef(false);
+  const scanningActiveRef = useRef(false);
   const codeReaderRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<any>(null);
@@ -112,25 +113,62 @@ function WebCamera({
           console.log('Could not apply focus constraints:', e);
         }
         
-        setDebugInfo('Creating ZXing scanner...');
+        setDebugInfo('Creating ZXing scanner with enhanced preprocessing...');
         codeReaderRef.current = new BrowserMultiFormatReader();
+        
+        // Create hidden canvas for frame capture and preprocessing
+        const scanCanvas = document.createElement('canvas');
+        const scanCtx = scanCanvas.getContext('2d');
         
         setIsScanning(true);
         frameCountRef.current = 0;
-        
-        // Use continuous decode with callback for instant scanning
-        // This is the proper API for real-time barcode scanning
-        const decodePromise = codeReaderRef.current.decodeFromVideoElement(
-          videoRef.current,
-          (result, error) => {
-            if (result) {
-              frameCountRef.current++;
-              const code = result.getText();
-              const format = result.getBarcodeFormat()?.toString() || 'unknown';
-              console.log('✅ Barcode detected:', code, 'Format:', format);
-              setDebugInfo(`Barcode found: ${code}`);
+        scanningActiveRef.current = true;
+        // More robust scanning with frame preprocessing for rotated barcodes
+        const enhancedScanInterval = setInterval(async () => {
+          if (!videoRef.current || !scanCtx || !codeReaderRef.current || !scanningActiveRef.current) return;
+          
+          try {
+            frameCountRef.current++;
+            
+            // Set canvas size to match video
+            scanCanvas.width = videoRef.current.videoWidth;
+            scanCanvas.height = videoRef.current.videoHeight;
+            
+            // Draw original frame
+            scanCtx.drawImage(videoRef.current, 0, 0);
+            
+            // Get image data for preprocessing
+            const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+            const data = imageData.data;
+            
+            // Apply edge enhancement to handle glare and improve contrast
+            // This helps detect vertical barcodes with glare
+            const tempData = new Uint8ClampedArray(data);
+            for (let i = 0; i < data.length; i += 4) {
+              // Convert to grayscale for processing
+              const gray = tempData[i] * 0.299 + tempData[i + 1] * 0.587 + tempData[i + 2] * 0.114;
               
-              if (!detectedRef.current) {
+              // Enhance edge contrast (make blacks blacker, whites whiter)
+              const enhanced = gray < 128 ? gray * 0.7 : 128 + (gray - 128) * 1.5;
+              
+              data[i] = enhanced;      // R
+              data[i + 1] = enhanced;  // G
+              data[i + 2] = enhanced;  // B
+              // Keep alpha unchanged
+            }
+            
+            // Put enhanced image back
+            scanCtx.putImageData(imageData, 0, 0);
+            
+            // Try to decode from enhanced canvas
+            try {
+              const result = await codeReaderRef.current.decodeFromCanvas(scanCanvas);
+              if (result && !detectedRef.current) {
+                const code = result.getText();
+                const format = result.getBarcodeFormat()?.toString() || 'unknown';
+                console.log('✅ Barcode detected:', code, 'Format:', format);
+                setDebugInfo(`Barcode found: ${code}`);
+                
                 detectedRef.current = true;
                 onBarcodeScanned({
                   type: format,
@@ -143,18 +181,52 @@ function WebCamera({
                   setDebugInfo('Ready for next barcode');
                 }, 1500);
               }
+            } catch (e) {
+              // Try rotated version for vertical barcodes
+              if (frameCountRef.current % 3 === 0) {
+                try {
+                  // Rotate canvas 90 degrees and try again (for vertical barcodes)
+                  const rotatedCanvas = document.createElement('canvas');
+                  rotatedCanvas.width = scanCanvas.height;
+                  rotatedCanvas.height = scanCanvas.width;
+                  const rotCtx = rotatedCanvas.getContext('2d');
+                  if (rotCtx) {
+                    rotCtx.translate(rotatedCanvas.width / 2, rotatedCanvas.height / 2);
+                    rotCtx.rotate(Math.PI / 2);
+                    rotCtx.drawImage(scanCanvas, -scanCanvas.width / 2, -scanCanvas.height / 2);
+                    
+                    const resultRotated = await codeReaderRef.current.decodeFromCanvas(rotatedCanvas);
+                    if (resultRotated && !detectedRef.current) {
+                      const code = resultRotated.getText();
+                      const format = resultRotated.getBarcodeFormat()?.toString() || 'unknown';
+                      console.log('✅ Barcode detected (rotated):', code, 'Format:', format);
+                      setDebugInfo(`Barcode found (rotated): ${code}`);
+                      
+                      detectedRef.current = true;
+                      onBarcodeScanned({
+                        type: format,
+                        data: code
+                      });
+                      
+                      setTimeout(() => {
+                        detectedRef.current = false;
+                        setDebugInfo('Ready for next barcode');
+                      }, 1500);
+                    }
+                  }
+                } catch (e2) {
+                  // Silent - no barcode in this frame
+                }
+              }
             }
-            
-            if (frameCountRef.current % 0 === 0 && frameCountRef.current > 0) {
-              // Only update status occasionally to reduce re-renders
-            }
+          } catch (err) {
+            console.error('Scan error:', err);
           }
-        );
+        }, 200); // Faster scanning (200ms) for better vertical detection
         
-        // Store the promise so we can cancel it later
-        scanIntervalRef.current = decodePromise as any;
-        setDebugInfo('✓ Scanner ready - scan any angle and lighting');
-        console.log('✅ Scanner started with enhanced rotation and glare handling!');
+        scanIntervalRef.current = enhancedScanInterval as any;
+        setDebugInfo('✓ Scanner ready - enhanced for vertical/angled barcodes');
+        console.log('✅ Scanner started with edge enhancement and rotation support!');
         
         
       } catch (error: any) {
@@ -166,14 +238,12 @@ function WebCamera({
     startScanner();
 
     return () => {
-      // Cancel the continuous decode
-      if (codeReaderRef.current) {
-        try {
-          codeReaderRef.current.reset();
-        } catch (e) {
-          // Ignore cancel errors
-        }
+      // Stop the enhanced scan loop
+      scanningActiveRef.current = false;
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current as any);
       }
+      // Clean up stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -243,9 +313,9 @@ function WebCamera({
             objectFit: 'cover',
             borderRadius: 12,
             backgroundColor: '#000',
-            // Enhance contrast for better barcode detection in glare/poor lighting
-            filter: 'contrast(1.2) brightness(1.1) saturate(1.1)',
-            WebkitFilter: 'contrast(1.2) brightness(1.1) saturate(1.1)'
+            // Aggressive enhancement for glare and vertical barcodes
+            filter: 'contrast(1.3) brightness(1.15) saturate(1.2) hue-rotate(0deg)',
+            WebkitFilter: 'contrast(1.3) brightness(1.15) saturate(1.2)'
           } as any}
         />
       </View>
@@ -269,7 +339,7 @@ function WebCamera({
       {/* Status indicator only */}
       <View style={{ position: 'absolute', bottom: 80, left: 20, right: 20, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 6 }}>
         <ThemedText style={{ color: '#fff', fontSize: 10, textAlign: 'center' }}>
-          {isScanning ? '🔍 Scanning | Tap camera to focus' : '📷 Initializing camera...'}
+          {isScanning ? '🔍 Scanning vertical/angled barcodes' : '📷 Initializing camera...'}
         </ThemedText>
       </View>
     </View>
