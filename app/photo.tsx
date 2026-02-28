@@ -20,6 +20,7 @@ function WebCamera({
   const [isScanning, setIsScanning] = React.useState(false);
   const [debugInfo, setDebugInfo] = React.useState('Initializing...');
   const detectedRef = useRef(false);
+  const scanningActiveRef = useRef(false);
   const codeReaderRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<any>(null);
@@ -106,16 +107,16 @@ function WebCamera({
           if (videoTrack && videoTrack.applyConstraints) {
             const capabilities = (videoTrack as any).getCapabilities?.() || {};
             const constraints: any = { advanced: [] };
-            
+
             // Log capabilities for debugging
             console.log('Camera capabilities:', capabilities);
-            
+
             if (capabilities.focusMode?.includes('continuous')) {
               constraints.advanced.push({ focusMode: 'continuous' });
             } else if (capabilities.focusMode?.includes('macro')) {
               constraints.advanced.push({ focusMode: 'macro' });
             }
-            
+
             if (capabilities.zoom) {
               // Slight zoom can help with small barcodes
               const minZoom = capabilities.zoom.min || 1;
@@ -124,12 +125,12 @@ function WebCamera({
                 constraints.advanced.push({ zoom: 1.2 });
               }
             }
-            
+
             if (capabilities.focusDistance) {
               // Try to set for close-up if available, usually 0 is closest
               constraints.advanced.push({ focusDistance: 0 });
             }
-            
+
             if (constraints.advanced.length > 0) {
               await videoTrack.applyConstraints(constraints);
             }
@@ -138,9 +139,9 @@ function WebCamera({
           console.log('Could not apply focus constraints:', e);
         }
         
-        setDebugInfo('Creating ZXing scanner...');
+        setDebugInfo('Creating ZXing scanner with enhanced preprocessing...');
         const { DecodeHintType, BarcodeFormat } = await import('@zxing/library');
-        
+
         // Define hints for multi-format reader to be more robust
         const hints = new Map();
         const formats = [
@@ -165,34 +166,125 @@ function WebCamera({
         hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
         hints.set(DecodeHintType.TRY_HARDER, true);
         
+        // Create hidden canvas for frame capture and preprocessing
+        const scanCanvas = document.createElement('canvas');
+        const scanCtx = scanCanvas.getContext('2d');
+
+        const { DecodeHintType, BarcodeFormat } = await import('@zxing/library');
+        const hints = new Map();
+        const formats = [
+          BarcodeFormat.AZTEC,
+          BarcodeFormat.CODABAR,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.CODE_93,
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.DATA_MATRIX,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.ITF,
+          BarcodeFormat.MAXICODE,
+          BarcodeFormat.PDF_417,
+          BarcodeFormat.QR_CODE,
+          BarcodeFormat.RSS_14,
+          BarcodeFormat.RSS_EXPANDED,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
+          BarcodeFormat.UPC_EAN_EXTENSION,
+        ];
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+        hints.set(DecodeHintType.TRY_HARDER, true);
+
         codeReaderRef.current = new BrowserMultiFormatReader(hints);
-        
         detectedRef.current = false;
         setIsScanning(true);
         frameCountRef.current = 0;
-        
-        // Use continuous decode with callback for instant scanning
-        // This is the proper API for real-time barcode scanning
-    const decodePromise = codeReaderRef.current.decodeFromVideoElement(
-          videoRef.current,
-          (result, error) => {
-            if (result) {
-              const code = result.getText();
-              
-              // VALIDATION: Only accept codes that look like valid barcodes (numbers, mostly)
-              // This prevents random noise being interpreted as short barcodes
-              const isNumeric = /^\d+$/.test(code);
-              if (code.length < 5 && !isNumeric) {
-                console.log('Filtered out potential noise:', code);
+        scanningActiveRef.current = true;
+        // More robust scanning with frame preprocessing for rotated barcodes
+        const enhancedScanInterval = setInterval(async () => {
+          if (!videoRef.current || !scanCtx || !codeReaderRef.current || !scanningActiveRef.current) return;
+
+          try {
+            frameCountRef.current++;
+
+            // Set canvas size to match video
+            scanCanvas.width = videoRef.current.videoWidth;
+            scanCanvas.height = videoRef.current.videoHeight;
+
+            // Draw original frame
+            scanCtx.drawImage(videoRef.current, 0, 0);
+            try {
+              const result = await codeReaderRef.current.decodeFromCanvas(scanCanvas);
+              if (result && !detectedRef.current) {
+                const code = result.getText();
+                const format = result.getBarcodeFormat()?.toString() || 'unknown';
+                console.log('✅ Barcode detected:', code, 'Format:', format);
+                setDebugInfo(`Barcode found: ${code}`);
+
+                detectedRef.current = true;
+                onBarcodeScanned({
+                  type: format,
+                  data: code
+                });
+
+                setTimeout(() => {
+                  detectedRef.current = false;
+                  setDebugInfo('Ready for next barcode');
+                }, 1500);
                 return;
               }
+            } catch (e) {
+              // Continue to rotation attempt if normal scan fails
+            }
 
-              frameCountRef.current++;
-              const format = result.getBarcodeFormat()?.toString() || 'unknown';
-              console.log('✅ Barcode detected:', code, 'Format:', format);
-              setDebugInfo(`Barcode found: ${code}`);
-              
-              if (!detectedRef.current) {
+            // Try rotated version every 3rd frame for vertical barcodes
+            if (frameCountRef.current % 3 === 0) {
+              try {
+                // Rotate canvas 90 degrees and try again (for vertical barcodes)
+                const rotatedCanvas = document.createElement('canvas');
+                rotatedCanvas.width = scanCanvas.height;
+                rotatedCanvas.height = scanCanvas.width;
+                const rotCtx = rotatedCanvas.getContext('2d');
+                if (rotCtx) {
+                  rotCtx.translate(rotatedCanvas.width / 2, rotatedCanvas.height / 2);
+                  rotCtx.rotate(Math.PI / 2);
+                  rotCtx.drawImage(scanCanvas, -scanCanvas.width / 2, -scanCanvas.height / 2);
+
+                  try {
+                    const resultRotated = await codeReaderRef.current.decodeFromCanvas(rotatedCanvas);
+                    if (resultRotated && !detectedRef.current) {
+                      const code = resultRotated.getText();
+                      const format = resultRotated.getBarcodeFormat()?.toString() || 'unknown';
+                      console.log('✅ Barcode detected (rotated 90°):', code, 'Format:', format);
+                      setDebugInfo(`Barcode found (rotated): ${code}`);
+
+                      detectedRef.current = true;
+                      onBarcodeScanned({
+                        type: format,
+                        data: code
+                      });
+
+                      setTimeout(() => {
+                        detectedRef.current = false;
+                        setDebugInfo('Ready for next barcode');
+                      }, 1500);
+                      return;
+                    }
+                  } catch (e2) {
+                    // No barcode in rotated frame either
+                  }
+                }
+              } catch (rotErr) {
+                console.log('Rotation scan error:', rotErr);
+              }
+            }
+          } catch (err) {
+            console.error('Scan error:', err);
+          }
+        }, 200); // Faster scanning (200ms) for better vertical detection
+
+        scanIntervalRef.current = enhancedScanInterval as any;
+        setDebugInfo('✓ Scanner ready - enhanced for vertical/angled barcodes');
+        console.log('✅ Scanner started with edge enhancement and rotation support!');
                 detectedRef.current = true;
                 onBarcodeScanned({
                   type: format,
@@ -200,15 +292,17 @@ function WebCamera({
                 });
                 // Pause further detections until the parent re-enables scanning
                 setIsScanning(false);
+                              return;
               }
+            } catch (e) {
+              // Continue to rotation attempt if normal scan fails
             }
           }
-        );
+        }, 200); // Faster scanning (200ms) for better vertical detection
         
-        // Store the promise so we can cancel it later
-        scanIntervalRef.current = decodePromise as any;
-        setDebugInfo('✓ Scanner ready - scan any angle and lighting');
-        console.log('✅ Scanner started with enhanced rotation and glare handling!');
+        scanIntervalRef.current = enhancedScanInterval as any;
+        setDebugInfo('✓ Scanner ready - enhanced for vertical/angled barcodes');
+        console.log('✅ Scanner started with edge enhancement and rotation support!');
         
         
       } catch (error: any) {
@@ -220,14 +314,12 @@ function WebCamera({
     startScanner();
 
     return () => {
-      // Cancel the continuous decode
-      if (codeReaderRef.current) {
-        try {
-          codeReaderRef.current.reset();
-        } catch (e) {
-          // Ignore cancel errors
-        }
+      // Stop the enhanced scan loop
+      scanningActiveRef.current = false;
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current as any);
       }
+      // Clean up stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => {
           try {
@@ -308,9 +400,9 @@ function WebCamera({
             objectFit: 'cover',
             borderRadius: 12,
             backgroundColor: '#000',
-            // Slightly reduced filters to avoid phantom detections from noise
-            filter: 'contrast(1.1) brightness(1.05)',
-            WebkitFilter: 'contrast(1.1) brightness(1.05)'
+            // Enhance contrast for better barcode detection in all lighting conditions
+            filter: 'contrast(1.3) brightness(1.15) saturate(1.2)',
+            WebkitFilter: 'contrast(1.3) brightness(1.15) saturate(1.2)'
           } as any}
         />
       </View>
@@ -334,10 +426,10 @@ function WebCamera({
       <View style={{ position: 'absolute', bottom: 80, left: 20, right: 20, gap: 10, zIndex: 5 }}>
         <View style={{ backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 6 }}>
           <ThemedText style={{ color: '#fff', fontSize: 10, textAlign: 'center' }}>
-            {isScanning ? '🔍 Scanning | Tap camera to focus' : '📷 Camera active'}
+            {isScanning ? '🔍 Scanning vertical/angled barcodes' : '📷 Camera active'}
           </ThemedText>
         </View>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => setRefreshKey(prev => prev + 1)}
           style={{ backgroundColor: 'rgba(46, 125, 50, 0.8)', padding: 8, borderRadius: 6, alignSelf: 'center' }}
         >
@@ -365,19 +457,19 @@ export default function PhotoScreen() {
     setIsScanning(true);
     setIsLoading(true);
     setAiSummary(null);
-    
+
     try {
       console.log(`🔍 Starting product lookup for barcode: ${barcode}`);
       // 1. Fetch from Open Food Facts
       const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
-      
+
       if (!response.ok) {
         throw new Error(`Open Food Facts API error: ${response.status} ${response.statusText}`);
       }
-      
+
       const data = await response.json();
       console.log('Open Food Facts response received');
-      
+
       if (data.status === 1 && data.product) {
         const product = data.product;
         const name = product.product_name || 'Unknown Product';
@@ -448,7 +540,7 @@ export default function PhotoScreen() {
               })
             });
             const geminiData = await geminiResponse.json();
-            
+
             if (geminiData.candidates && geminiData.candidates[0]?.content?.parts[0]?.text) {
               setAiSummary(geminiData.candidates[0].content.parts[0].text);
             } else if (geminiData.error) {
@@ -495,7 +587,7 @@ export default function PhotoScreen() {
         scanningRef.current = false;
         console.log('Scanner ready for next scan');
       }, 2500); // Wait 2.5 seconds before allowing another scan
-      
+
       return () => clearTimeout(cleanupTimer);
     }
   };
@@ -609,18 +701,18 @@ export default function PhotoScreen() {
             {Platform.OS === 'web' ? (
               // Web-specific camera
               <>
-                <WebCamera 
+                <WebCamera
                   onBarcodeScanned={handleBarcodeScanned}
                   isEnabled={cameraEnabled && !scannedData}
                 />
-                
+
                 {cameraEnabled && (
                   <>
                     {/* Always show scanning frame */}
                     <View style={styles.scanFrame} pointerEvents="none">
                       <View style={styles.scanCorner} />
                     </View>
-                    
+
                     {/* Status indicator */}
                     <View style={styles.statusBar} pointerEvents="none">
                       <ThemedText style={styles.statusText}>
@@ -656,12 +748,12 @@ export default function PhotoScreen() {
                     }}
                     onBarcodeScanned={handleBarcodeScanned}
                   />
-                  
+
                   {/* Always show scanning frame */}
                   <View style={styles.scanFrame} pointerEvents="none">
                     <View style={styles.scanCorner} />
                   </View>
-                  
+
                   {/* Status indicator */}
                   <View style={styles.statusBar} pointerEvents="none">
                     <ThemedText style={styles.statusText}>
@@ -675,7 +767,7 @@ export default function PhotoScreen() {
                 </View>
               )
             )}
-            
+
             {/* Scanning Indicator */}
             {isScanning && cameraEnabled && (
               <View style={styles.scanningOverlay} pointerEvents="none">
@@ -699,7 +791,7 @@ export default function PhotoScreen() {
             <ScrollView style={styles.scanResult}>
               <ThemedText style={styles.scanResultTitle}>Product Found!</ThemedText>
               <ThemedText style={styles.productName}>{productName}</ThemedText>
-              
+
               {aiSummary ? (
                 <View style={styles.summaryContainer}>
                   <ThemedText style={styles.summaryTitle}>Health Summary:</ThemedText>
@@ -710,7 +802,7 @@ export default function PhotoScreen() {
                   <ActivityIndicator size="small" color="#2E7D32" style={{ marginVertical: 10 }} />
                 )
               )}
-              
+
               <ThemedText style={styles.barcodeText}>Barcode: {scannedData}</ThemedText>
               <TouchableOpacity
                 style={styles.clearButton}
