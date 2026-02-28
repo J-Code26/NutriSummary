@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { ImageBackground, StyleSheet, TouchableOpacity } from 'react-native';
+import { Image, StyleSheet, TouchableOpacity } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -20,7 +20,7 @@ export default function HomeScreen() {
   }, []);
 
   return (
-    <ImageBackground source={background} style={styles.container} resizeMode="cover">
+    <Image source={background} style={styles.container} resizeMode="cover">
       <ThemedView style={styles.overlay}>
         <ThemedText>Debug: Screen loaded</ThemedText>
         <ThemedText>{JSON.stringify(background)}</ThemedText>
@@ -28,7 +28,7 @@ export default function HomeScreen() {
           <ThemedText style={styles.startButtonText}>Start</ThemedText>
         </TouchableOpacity>
       </ThemedView>
-    </ImageBackground>
+    </Image>
   );
 }
 
