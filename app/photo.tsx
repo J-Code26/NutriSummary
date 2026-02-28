@@ -9,6 +9,7 @@ import { ThemedView } from '@/components/themed-view';
 export default function PhotoScreen() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
+  const [cameraEnabled, setCameraEnabled] = React.useState(true);
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -84,7 +85,19 @@ export default function PhotoScreen() {
 
       {/* Camera View */}
       <View style={styles.content}>
-        <CameraView style={styles.cameraBox} facing="back" />
+        {cameraEnabled ? (
+          <CameraView style={styles.cameraBox} facing="back" />
+        ) : (
+          <View style={[styles.cameraBox, styles.cameraOffBox]} />
+        )}
+        <TouchableOpacity
+          style={styles.toggleButton}
+          onPress={() => setCameraEnabled(!cameraEnabled)}
+        >
+          <ThemedText style={styles.toggleButtonText}>
+            {cameraEnabled ? 'Turn Off Camera' : 'Turn On Camera'}
+          </ThemedText>
+        </TouchableOpacity>
       </View>
     </ThemedView>
   );
@@ -133,5 +146,22 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 3,
     borderColor: '#2E7D32',
+  },
+  cameraOffBox: {
+    backgroundColor: '#ccc',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toggleButton: {
+    marginTop: 20,
+    backgroundColor: '#2E7D32',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 8,
+  },
+  toggleButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
   },
 });
