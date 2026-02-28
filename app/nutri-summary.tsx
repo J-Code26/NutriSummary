@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Modal, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -135,8 +135,13 @@ export default function FiltersScreen() {
   const [height, setHeight] = React.useState('');
   const [gender, setGender] = React.useState('');
 
+  const isLoaded = useRef(false);
+
   // whenever any of the filters change, serialize and save to disk
   useEffect(() => {
+    // skip saving if we haven't finished loading existing filters
+    if (!isLoaded.current) return;
+
     const data = {
       allergies,
       diets,
@@ -206,9 +211,46 @@ export default function FiltersScreen() {
           console.warn('Failed to parse saved filters', e);
         }
       }
+      isLoaded.current = true;
     };
     loadFilters();
   }, []);
+
+  const saveFilters = async () => {
+    const data = {
+      allergies,
+      diets,
+      medicalRestrictions,
+      religions,
+      weight,
+      age,
+      height,
+      gender,
+    };
+
+    const json = JSON.stringify(data);
+
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('nutri-filters', json);
+        }
+      } else {
+        const fileUri = FileSystem.documentDirectory ? FileSystem.documentDirectory + 'filters.txt' : null;
+        if (fileUri) {
+          await FileSystem.writeAsStringAsync(fileUri, json);
+        }
+      }
+      console.log('Filters saved successfully');
+    } catch (e) {
+      console.warn('Failed to save filters', e);
+    }
+  };
+
+  const handleProceed = async () => {
+    await saveFilters();
+    router.push('/photo');
+  };
 
   return (
     <ThemedView style={styles.container} lightColor="#ade866" darkColor="#0A2F0A">
@@ -337,7 +379,7 @@ export default function FiltersScreen() {
 
         <TouchableOpacity
           style={styles.proceedButton}
-          onPress={() => router.push('/photo')}
+          onPress={handleProceed}
         >
           <ThemedText style={styles.proceedButtonText}>Proceed</ThemedText>
         </TouchableOpacity>

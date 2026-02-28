@@ -1,114 +1,80 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { RulesEngine, RULES, SYNONYMS, normalizeOFF, EvaluationResponse, FilterProfile } from '@/utils/nutrition-logic';
 
-// --- Decision Tree Evaluation (placeholder) ---
-// This function will be replaced with the migrated Python logic.
-// It evaluates a product from Open Food Facts against saved user filters.
-function evaluateProductWithDecisionTree(product: any, userFilters: any): string {
-  try {
-    const text = (product.ingredients_text || '').toLowerCase();
-    const labels: string[] = product.labels_tags || [];
-    const nutriments = product.nutriments || {};
+// --- Decision Tree Evaluation ---
+// This function uses the migrated Python logic to evaluate products.
+const engine = new RulesEngine(RULES, SYNONYMS);
 
-    const filters = userFilters || {};
-    const allergies: string[] = Array.isArray(filters.allergies) ? filters.allergies : [];
-    const diets: string[] = Array.isArray(filters.diets) ? filters.diets : [];
-    const medical: string[] = Array.isArray(filters.medicalRestrictions) ? filters.medicalRestrictions : [];
+function evaluateProductWithDecisionTree(productData: any, userFilters: any): EvaluationResponse {
+  const product = normalizeOFF(productData);
+  
+  // Map app filters to the RulesEngine's FilterProfile
+  const profile: FilterProfile = {
+    diet: null,
+    religion: null,
+    medical: null,
+    allergens: (userFilters.allergies || []).map((a: string) => {
+      let val = a.toLowerCase();
+      if (val === 'eggs') return 'egg';
+      if (val === 'dairy') return 'milk';
+      if (val === 'artificial sweeteners') return 'artificial_sweeteners';
+      if (val === 'sugar alcohol') return 'sugar_alcohols';
+      if (val === 'seed oils') return 'seed_oils';
+      if (val === 'high-fructose corn syrup') return 'hfcs';
+      return val;
+    }),
+    unitsPreference: 'per_serving',
+    strictness: 'balanced'
+  };
 
-    const warnings: string[] = [];
-    const positives: string[] = [];
-
-    // Allergies check: simple substring match against ingredients text
-    allergies.forEach((a) => {
-      const key = String(a).toLowerCase();
-      if (key && text.includes(key)) {
-        warnings.push(`Contains or may contain: ${a}`);
-      }
-    });
-
-    // Diet checks (basic heuristics)
-    const labelHas = (k: string) => labels.some((t) => String(t).toLowerCase().includes(k));
-
-    if (diets.includes('Vegan')) {
-      if (labelHas('vegan')) {
-        positives.push('Labeled vegan');
-      } else if (/milk|egg|honey|gelatin|whey|casein|lactose|butter|cheese|yogurt|cream|shellfish|fish|pork|beef|chicken/i.test(text)) {
-        warnings.push('Not vegan-friendly (animal-derived ingredient found)');
-      } else {
-        positives.push('Likely vegan (no obvious animal ingredients)');
-      }
-    }
-
-    if (diets.includes('Dairy-free')) {
-      if (/milk|whey|casein|lactose|butter|cheese|yogurt|cream/i.test(text)) {
-        warnings.push('Contains dairy');
-      } else {
-        positives.push('No obvious dairy ingredients');
-      }
-    }
-
-    if (diets.includes('Gluten-free')) {
-      if (/wheat|barley|rye|malt|spelt|semolina|farro|triticale|bulgur/i.test(text)) {
-        warnings.push('Contains gluten sources');
-      } else {
-        positives.push('No obvious gluten sources');
-      }
-    }
-
-    if (diets.includes('Keto')) {
-      const carbs = Number(nutriments.carbohydrates_100g ?? nutriments.carbs_100g ?? nutriments.carbohydrates);
-      if (!Number.isNaN(carbs)) {
-        if (carbs <= 10) positives.push(`Low carb (~${carbs}/100g)`);
-        else warnings.push(`Higher carbs for keto (~${carbs}/100g)`);
-      }
-    }
-
-    if (diets.includes('High-Protein')) {
-      const protein = Number(nutriments.proteins_100g ?? nutriments.protein_100g ?? nutriments.proteins);
-      if (!Number.isNaN(protein)) {
-        if (protein >= 15) positives.push(`High protein (~${protein}/100g)`);
-        else warnings.push(`Lower protein (~${protein}/100g)`);
-      }
-    }
-
-    // General health heuristics
-    const sugar = Number(nutriments.sugars_100g ?? nutriments.sugar_100g ?? nutriments.sugars);
-    if (!Number.isNaN(sugar)) {
-      if (sugar >= 15) warnings.push(`High sugar (~${sugar}/100g)`);
-      else if (sugar <= 5) positives.push(`Low sugar (~${sugar}/100g)`);
-    }
-    const satFat = Number(nutriments['saturated-fat_100g'] ?? nutriments.saturated_fat_100g ?? nutriments.saturated_fat);
-    if (!Number.isNaN(satFat) && satFat >= 5) warnings.push(`Higher saturated fat (~${satFat}/100g)`);
-    const salt = Number(nutriments.salt_100g ?? nutriments.sodium_100g);
-    if (!Number.isNaN(salt) && salt >= 1.5) warnings.push(`High salt (~${salt}/100g)`);
-
-    // Add common additive flags
-    if (/high[- ]?fructose corn syrup|hfcs/i.test(text)) warnings.push('Contains high-fructose corn syrup');
-    if (/aspartame|sucralose|acesulfame|saccharin|stevia/i.test(text)) warnings.push('Contains artificial/alternative sweeteners');
-    if (/canola oil|soybean oil|corn oil|sunflower oil|safflower oil|cottonseed oil|grapeseed oil/i.test(text)) warnings.push('Contains seed oils');
-
-    // Score and outcome
-    const score = (positives.length * 2) - (warnings.length * 3);
-    let verdict = 'Neutral choice';
-    if (score <= -3) verdict = 'Avoid';
-    else if (score >= 3) verdict = 'Good choice';
-
-    const bullets = [
-      `Verdict: ${verdict}`,
-      ...(positives.length ? ['Positives: ' + positives.join('; ')] : []),
-      ...(warnings.length ? ['Warnings: ' + warnings.join('; ')] : []),
-    ];
-
-    return bullets.join('\n• ');
-  } catch (e: any) {
-    return `Evaluation error: ${e.message || 'unknown'}`;
+  // Improved mapping: If multiple diets, religions, or medical restrictions are selected, 
+  // we try to map them to the keys expected by the RulesEngine.
+  // Note: The current RulesEngine logic (in _applies_when) uses strict equality check,
+  // so we pick the most relevant single value if multiple are present.
+  
+  if (userFilters.diets && userFilters.diets.length > 0) {
+    const dietOptions = ['keto', 'vegan', 'pescetarian', 'dairy-free', 'gluten-free', 'carnivore', 'mediterranean', 'paleo', 'high-protein', 'pork-free', 'vegetarian'];
+    const foundDiet = userFilters.diets.find((d: string) => dietOptions.includes(d.toLowerCase()));
+    if (foundDiet) profile.diet = foundDiet.toLowerCase();
   }
+
+  if (userFilters.religions && userFilters.religions.length > 0) {
+    const rel = userFilters.religions[0].toLowerCase();
+    if (rel.includes('islamic') || rel.includes('halal')) profile.religion = 'halal';
+    else if (rel.includes('jewish') || rel.includes('kosher')) profile.religion = 'kosher';
+  }
+
+  if (userFilters.medicalRestrictions && userFilters.medicalRestrictions.length > 0) {
+    const medicalMap: Record<string, string> = {
+      'celiac': 'celiac',
+      'diabetes': 'diabetes',
+      'lactose': 'lactose',
+      'sodium': 'low sodium',
+      'cholesterol': 'cholesterol',
+      'crohn': "crohn's"
+    };
+    
+    for (const med of userFilters.medicalRestrictions) {
+      const lowerMed = med.toLowerCase();
+      for (const [key, value] of Object.entries(medicalMap)) {
+        if (lowerMed.includes(key)) {
+          profile.medical = value;
+          break;
+        }
+      }
+      if (profile.medical) break;
+    }
+  }
+
+  return engine.evaluate(product, profile);
 }
 
 // Web camera component with automatic barcode scanning
@@ -506,10 +472,43 @@ export default function PhotoScreen() {
   const [cameraEnabled, setCameraEnabled] = React.useState(true);
   const [scannedData, setScannedData] = React.useState<string | null>(null);
   const [productName, setProductName] = React.useState<string | null>(null);
-  const [evaluationResult, setEvaluationResult] = React.useState<string | null>(null);
+  const [evaluationResult, setEvaluationResult] = React.useState<EvaluationResponse | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isScanning, setIsScanning] = React.useState(false);
+  const [userFilters, setUserFilters] = React.useState<any>({});
   const scanningRef = useRef(false);
+
+  const loadFilters = async () => {
+    try {
+      let savedData: string | null = null;
+      if (Platform.OS === 'web') {
+        if (typeof localStorage !== 'undefined') {
+          savedData = localStorage.getItem('nutri-filters');
+        }
+      } else {
+        const fileUri = FileSystem.documentDirectory ? FileSystem.documentDirectory + 'filters.txt' : null;
+        if (fileUri) {
+          const exists = await FileSystem.getInfoAsync(fileUri);
+          if (exists.exists) {
+            savedData = await FileSystem.readAsStringAsync(fileUri);
+          }
+        }
+      }
+      if (savedData) {
+        const parsed = JSON.parse(savedData);
+        setUserFilters(parsed);
+        console.log('Filters loaded in Photo screen');
+      }
+    } catch (e) {
+      console.log('Failed to load filters in Photo screen', e);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadFilters();
+    }, [])
+  );
 
   const fetchProductInfo = async (barcode: string) => {
     if (scanningRef.current) return; // Prevent multiple scans
@@ -538,38 +537,37 @@ export default function PhotoScreen() {
       if (data.status === 1 && data.product) {
         const product = data.product;
         const name = product.product_name || 'Unknown Product';
-        setProductName(name);
         setScannedData(barcode);
-
-        // 2. Read User Filters
-        let userFilters = {};
-        try {
-          let savedData: string | null = null;
-          if (Platform.OS === 'web') {
-            if (typeof localStorage !== 'undefined') {
-              savedData = localStorage.getItem('nutri-filters');
-            }
-          } else {
-            const fileUri = FileSystem.documentDirectory ? FileSystem.documentDirectory + 'filters.txt' : null;
-            if (fileUri) {
-              const exists = await FileSystem.getInfoAsync(fileUri);
-              if (exists.exists) {
-                savedData = await FileSystem.readAsStringAsync(fileUri);
-              }
-            }
-          }
-          if (savedData) {
-            userFilters = JSON.parse(savedData);
-          }
-        } catch (e) {
-          console.log('No filters found or failed to read filters', e);
-        }
+        setProductName(name);
 
         // 3. Evaluate with Decision Tree Logic (Migrated from Python)
-        // For now, this is a placeholder until the user provides the Python logic
         try {
-          // Placeholder implementation
-          const result = evaluateProductWithDecisionTree(product, userFilters);
+          // Re-load filters right before evaluation to ensure we have the absolute latest
+          let latestFilters = userFilters;
+          try {
+            let savedData: string | null = null;
+            if (Platform.OS === 'web') {
+              if (typeof localStorage !== 'undefined') {
+                savedData = localStorage.getItem('nutri-filters');
+              }
+            } else {
+              const fileUri = FileSystem.documentDirectory ? FileSystem.documentDirectory + 'filters.txt' : null;
+              if (fileUri) {
+                const exists = await FileSystem.getInfoAsync(fileUri);
+                if (exists.exists) {
+                  savedData = await FileSystem.readAsStringAsync(fileUri);
+                }
+              }
+            }
+            if (savedData) {
+              latestFilters = JSON.parse(savedData);
+              setUserFilters(latestFilters);
+            }
+          } catch (e) {
+            console.log('Error reloading filters for evaluation:', e);
+          }
+
+          const result = evaluateProductWithDecisionTree(product, latestFilters);
           setEvaluationResult(result);
         } catch (evalError: any) {
           console.error('Evaluation Error:', evalError);
@@ -802,8 +800,30 @@ export default function PhotoScreen() {
 
               {evaluationResult ? (
                 <View style={styles.summaryContainer}>
-                  <ThemedText style={styles.summaryTitle}>Health Evaluation:</ThemedText>
-                  <ThemedText style={styles.summaryText}>{evaluationResult}</ThemedText>
+                  <ThemedText style={[
+                    styles.summaryTitle, 
+                    { color: evaluationResult.verdict === 'PASS' ? '#2E7D32' : evaluationResult.verdict === 'FAIL' ? '#C62828' : '#F57C00' }
+                  ]}>
+                    Evaluation: {evaluationResult.verdict} (Score: {evaluationResult.score})
+                  </ThemedText>
+                  
+                  {evaluationResult.reasons.length > 0 ? (
+                    evaluationResult.reasons.map((reason, idx) => (
+                      <ThemedText key={idx} style={styles.summaryText}>• {reason}</ThemedText>
+                    ))
+                  ) : (
+                    <ThemedText style={styles.summaryText}>This product appears to align with your current filters. No specific health suggestions were triggered.</ThemedText>
+                  )}
+                  
+                  <ThemedText style={[styles.summaryText, { fontStyle: 'italic', marginTop: 10, fontSize: 10, color: '#666' }]}>
+                    Note: This evaluation is based on automated rule checks and may not be medically accurate.
+                  </ThemedText>
+                  
+                  {evaluationResult.missing_data.length > 0 && (
+                    <ThemedText style={[styles.summaryText, { fontStyle: 'italic', marginTop: 5, fontSize: 12 }]}>
+                      Missing info for: {evaluationResult.missing_data.join(', ')}
+                    </ThemedText>
+                  )}
                 </View>
               ) : (
                 productName !== 'Product not found in database' && 
