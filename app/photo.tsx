@@ -1,20 +1,21 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { RulesEngine, RULES, SYNONYMS, normalizeOFF, EvaluationResponse, FilterProfile } from '@/utils/nutrition-logic';
+import { EvaluationResponse, FilterProfile, RULES, RulesEngine, SYNONYMS, normalizeOFF } from '@/utils/nutrition-logic';
 
 // --- Decision Tree Evaluation ---
 // This function uses the migrated Python logic to evaluate products.
 const engine = new RulesEngine(RULES, SYNONYMS);
 
 function evaluateProductWithDecisionTree(productData: any, userFilters: any): EvaluationResponse {
-  const product = normalizeOFF(productData);
+  const normalizedInput = productData?.product ? productData : { product: productData };
+  const product = normalizeOFF(normalizedInput);
   
   // Map app filters to the RulesEngine's FilterProfile
   const profile: FilterProfile = {
@@ -567,11 +568,19 @@ export default function PhotoScreen() {
             console.log('Error reloading filters for evaluation:', e);
           }
 
-          const result = evaluateProductWithDecisionTree(product, latestFilters);
+          const result = evaluateProductWithDecisionTree(data, latestFilters);
           setEvaluationResult(result);
         } catch (evalError: any) {
           console.error('Evaluation Error:', evalError);
-          setEvaluationResult(`Failed to evaluate product: ${evalError.message}`);
+          setEvaluationResult({
+            verdict: 'CAUTION',
+            score: 0,
+            reasons: [`Failed to evaluate product: ${evalError?.message || 'Unknown evaluation error'}`],
+            reason_codes: ['EVAL_ERROR'],
+            rule_details: [],
+            missing_data: [],
+            version: 'fallback'
+          });
         }
 
       } else {
