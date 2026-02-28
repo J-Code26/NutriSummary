@@ -1,9 +1,8 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Image, StyleSheet, TouchableOpacity } from 'react-native';
+import { ImageBackground, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 
 const background = require('@/assets/images/NutriSummaryFrontPage.png');
 
@@ -20,15 +19,15 @@ export default function HomeScreen() {
   }, []);
 
   return (
-    <Image source={background} style={styles.container} resizeMode="cover">
-      <ThemedView style={styles.overlay}>
+    <ImageBackground source={background} style={styles.container} resizeMode="cover">
+      <View style={styles.overlay}>
         <ThemedText>Debug: Screen loaded</ThemedText>
         <ThemedText>{JSON.stringify(background)}</ThemedText>
         <TouchableOpacity style={styles.startButton} onPress={handleStart}>
           <ThemedText style={styles.startButtonText}>Start</ThemedText>
         </TouchableOpacity>
-      </ThemedView>
-    </Image>
+      </View>
+    </ImageBackground>
   );
 }
 
