@@ -7,6 +7,110 @@ import { ActivityIndicator, Platform, ScrollView, StyleSheet, TextInput, Touchab
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
+// --- Decision Tree Evaluation (placeholder) ---
+// This function will be replaced with the migrated Python logic.
+// It evaluates a product from Open Food Facts against saved user filters.
+function evaluateProductWithDecisionTree(product: any, userFilters: any): string {
+  try {
+    const text = (product.ingredients_text || '').toLowerCase();
+    const labels: string[] = product.labels_tags || [];
+    const nutriments = product.nutriments || {};
+
+    const filters = userFilters || {};
+    const allergies: string[] = Array.isArray(filters.allergies) ? filters.allergies : [];
+    const diets: string[] = Array.isArray(filters.diets) ? filters.diets : [];
+    const medical: string[] = Array.isArray(filters.medicalRestrictions) ? filters.medicalRestrictions : [];
+
+    const warnings: string[] = [];
+    const positives: string[] = [];
+
+    // Allergies check: simple substring match against ingredients text
+    allergies.forEach((a) => {
+      const key = String(a).toLowerCase();
+      if (key && text.includes(key)) {
+        warnings.push(`Contains or may contain: ${a}`);
+      }
+    });
+
+    // Diet checks (basic heuristics)
+    const labelHas = (k: string) => labels.some((t) => String(t).toLowerCase().includes(k));
+
+    if (diets.includes('Vegan')) {
+      if (labelHas('vegan')) {
+        positives.push('Labeled vegan');
+      } else if (/milk|egg|honey|gelatin|whey|casein|lactose|butter|cheese|yogurt|cream|shellfish|fish|pork|beef|chicken/i.test(text)) {
+        warnings.push('Not vegan-friendly (animal-derived ingredient found)');
+      } else {
+        positives.push('Likely vegan (no obvious animal ingredients)');
+      }
+    }
+
+    if (diets.includes('Dairy-free')) {
+      if (/milk|whey|casein|lactose|butter|cheese|yogurt|cream/i.test(text)) {
+        warnings.push('Contains dairy');
+      } else {
+        positives.push('No obvious dairy ingredients');
+      }
+    }
+
+    if (diets.includes('Gluten-free')) {
+      if (/wheat|barley|rye|malt|spelt|semolina|farro|triticale|bulgur/i.test(text)) {
+        warnings.push('Contains gluten sources');
+      } else {
+        positives.push('No obvious gluten sources');
+      }
+    }
+
+    if (diets.includes('Keto')) {
+      const carbs = Number(nutriments.carbohydrates_100g ?? nutriments.carbs_100g ?? nutriments.carbohydrates);
+      if (!Number.isNaN(carbs)) {
+        if (carbs <= 10) positives.push(`Low carb (~${carbs}/100g)`);
+        else warnings.push(`Higher carbs for keto (~${carbs}/100g)`);
+      }
+    }
+
+    if (diets.includes('High-Protein')) {
+      const protein = Number(nutriments.proteins_100g ?? nutriments.protein_100g ?? nutriments.proteins);
+      if (!Number.isNaN(protein)) {
+        if (protein >= 15) positives.push(`High protein (~${protein}/100g)`);
+        else warnings.push(`Lower protein (~${protein}/100g)`);
+      }
+    }
+
+    // General health heuristics
+    const sugar = Number(nutriments.sugars_100g ?? nutriments.sugar_100g ?? nutriments.sugars);
+    if (!Number.isNaN(sugar)) {
+      if (sugar >= 15) warnings.push(`High sugar (~${sugar}/100g)`);
+      else if (sugar <= 5) positives.push(`Low sugar (~${sugar}/100g)`);
+    }
+    const satFat = Number(nutriments['saturated-fat_100g'] ?? nutriments.saturated_fat_100g ?? nutriments.saturated_fat);
+    if (!Number.isNaN(satFat) && satFat >= 5) warnings.push(`Higher saturated fat (~${satFat}/100g)`);
+    const salt = Number(nutriments.salt_100g ?? nutriments.sodium_100g);
+    if (!Number.isNaN(salt) && salt >= 1.5) warnings.push(`High salt (~${salt}/100g)`);
+
+    // Add common additive flags
+    if (/high[- ]?fructose corn syrup|hfcs/i.test(text)) warnings.push('Contains high-fructose corn syrup');
+    if (/aspartame|sucralose|acesulfame|saccharin|stevia/i.test(text)) warnings.push('Contains artificial/alternative sweeteners');
+    if (/canola oil|soybean oil|corn oil|sunflower oil|safflower oil|cottonseed oil|grapeseed oil/i.test(text)) warnings.push('Contains seed oils');
+
+    // Score and outcome
+    const score = (positives.length * 2) - (warnings.length * 3);
+    let verdict = 'Neutral choice';
+    if (score <= -3) verdict = 'Avoid';
+    else if (score >= 3) verdict = 'Good choice';
+
+    const bullets = [
+      `Verdict: ${verdict}`,
+      ...(positives.length ? ['Positives: ' + positives.join('; ')] : []),
+      ...(warnings.length ? ['Warnings: ' + warnings.join('; ')] : []),
+    ];
+
+    return bullets.join('\n• ');
+  } catch (e: any) {
+    return `Evaluation error: ${e.message || 'unknown'}`;
+  }
+}
+
 // Web camera component with automatic barcode scanning
 function WebCamera({ 
   onBarcodeScanned, 
@@ -402,7 +506,7 @@ export default function PhotoScreen() {
   const [cameraEnabled, setCameraEnabled] = React.useState(true);
   const [scannedData, setScannedData] = React.useState<string | null>(null);
   const [productName, setProductName] = React.useState<string | null>(null);
-  const [aiSummary, setAiSummary] = React.useState<string | null>(null);
+  const [evaluationResult, setEvaluationResult] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isScanning, setIsScanning] = React.useState(false);
   const scanningRef = useRef(false);
@@ -412,7 +516,7 @@ export default function PhotoScreen() {
     scanningRef.current = true;
     setIsScanning(true);
     setIsLoading(true);
-    setAiSummary(null);
+    setEvaluationResult(null);
 
     try {
       console.log(`🔍 Starting product lookup for barcode: ${barcode}`);
@@ -420,6 +524,11 @@ export default function PhotoScreen() {
       const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
 
       if (!response.ok) {
+        if (response.status === 404) {
+          setProductName('Product not found in Open Food Facts database');
+          setScannedData(barcode);
+          return;
+        }
         throw new Error(`Open Food Facts API error: ${response.status} ${response.statusText}`);
       }
 
@@ -433,97 +542,38 @@ export default function PhotoScreen() {
         setScannedData(barcode);
 
         // 2. Read User Filters
-        let userFilters = "No specific filters set.";
+        let userFilters = {};
         try {
+          let savedData: string | null = null;
           if (Platform.OS === 'web') {
             if (typeof localStorage !== 'undefined') {
-              const savedData = localStorage.getItem('nutri-filters');
-              if (savedData) {
-                const parsedFilters = JSON.parse(savedData);
-                userFilters = JSON.stringify(parsedFilters, null, 2);
-              }
+              savedData = localStorage.getItem('nutri-filters');
             }
           } else {
             const fileUri = FileSystem.documentDirectory ? FileSystem.documentDirectory + 'filters.txt' : null;
             if (fileUri) {
               const exists = await FileSystem.getInfoAsync(fileUri);
               if (exists.exists) {
-                const filtersContent = await FileSystem.readAsStringAsync(fileUri);
-                if (filtersContent) {
-                  const parsedFilters = JSON.parse(filtersContent);
-                  userFilters = JSON.stringify(parsedFilters, null, 2);
-                }
+                savedData = await FileSystem.readAsStringAsync(fileUri);
               }
             }
+          }
+          if (savedData) {
+            userFilters = JSON.parse(savedData);
           }
         } catch (e) {
           console.log('No filters found or failed to read filters', e);
         }
 
-        // 3. Summarize with AI (Gemini or OpenAI)
+        // 3. Evaluate with Decision Tree Logic (Migrated from Python)
+        // For now, this is a placeholder until the user provides the Python logic
         try {
-          const geminiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-          const openaiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-
-          const prompt = `
-            Analyze this food product from Open Food Facts and summarize it based on the user's health filters.
-            
-            Product: ${JSON.stringify({
-              name: product.product_name,
-              ingredients: product.ingredients_text,
-              nutrition: product.nutriments,
-              labels: product.labels,
-              categories: product.categories
-            })}
-            
-            User Filters: ${userFilters}
-            
-            Instructions:
-            1. Check if the product matches the user's allergies, diets, or medical restrictions.
-            2. Provide a concise summary (2-3 sentences) on whether this product is suitable for the user.
-            3. Use bullet points for key warnings or benefits.
-            4. Be direct and helpful.
-          `;
-
-          if (geminiKey) {
-            // Free Gemini Integration (Google AI SDK approach via fetch to avoid extra dependency)
-            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
-            const geminiResponse = await fetch(geminiUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
-              })
-            });
-            const geminiData = await geminiResponse.json();
-
-            if (geminiData.candidates && geminiData.candidates[0]?.content?.parts[0]?.text) {
-              setAiSummary(geminiData.candidates[0].content.parts[0].text);
-            } else if (geminiData.error) {
-              throw new Error(`Gemini Error: ${geminiData.error.message || 'Check API key'}`);
-            } else {
-              throw new Error('Gemini returned an empty response. Please check your API usage.');
-            }
-          } else if (openaiKey) {
-            // OpenAI Integration
-            const { default: OpenAI } = await import('openai');
-            const openai = new OpenAI({
-              apiKey: openaiKey,
-              dangerouslyAllowBrowser: true
-            });
-
-            const completion = await openai.chat.completions.create({
-              messages: [{ role: 'system', content: 'You are a helpful nutrition assistant.' }, { role: 'user', content: prompt }],
-              model: 'gpt-3.5-turbo',
-            });
-
-            setAiSummary(completion.choices[0].message.content);
-          } else {
-            setAiSummary("AI Summary Unavailable: Please add a Gemini API key to a `.env` file in the root directory (EXPO_PUBLIC_GEMINI_API_KEY=...) to enable health analysis.");
-          }
-        } catch (aiError: any) {
-          console.error('AI Error:', aiError);
-          setAiSummary(`Failed to generate AI summary: ${aiError.message || 'Check your API key and connection.'}`);
+          // Placeholder implementation
+          const result = evaluateProductWithDecisionTree(product, userFilters);
+          setEvaluationResult(result);
+        } catch (evalError: any) {
+          console.error('Evaluation Error:', evalError);
+          setEvaluationResult(`Failed to evaluate product: ${evalError.message}`);
         }
 
       } else {
@@ -551,7 +601,7 @@ export default function PhotoScreen() {
   const handleClear = () => {
     setScannedData(null);
     setProductName(null);
-    setAiSummary(null);
+    setEvaluationResult(null);
     setIsScanning(false);
     scanningRef.current = false;
     setIsLoading(false);
@@ -745,17 +795,24 @@ export default function PhotoScreen() {
         {!isLoading && productName && (
           <View style={styles.scanResultContainer}>
             <ScrollView style={styles.scanResult}>
-              <ThemedText style={styles.scanResultTitle}>Product Found!</ThemedText>
+              <ThemedText style={styles.scanResultTitle}>
+                {productName.startsWith('Error:') || productName.includes('not found') ? 'Scan Result' : 'Product Found!'}
+              </ThemedText>
               <ThemedText style={styles.productName}>{productName}</ThemedText>
 
-              {aiSummary ? (
+              {evaluationResult ? (
                 <View style={styles.summaryContainer}>
-                  <ThemedText style={styles.summaryTitle}>Health Summary:</ThemedText>
-                  <ThemedText style={styles.summaryText}>{aiSummary}</ThemedText>
+                  <ThemedText style={styles.summaryTitle}>Health Evaluation:</ThemedText>
+                  <ThemedText style={styles.summaryText}>{evaluationResult}</ThemedText>
                 </View>
               ) : (
-                productName !== 'Product not found in database' && (
-                  <ActivityIndicator size="small" color="#2E7D32" style={{ marginVertical: 10 }} />
+                productName !== 'Product not found in database' && 
+                productName !== 'Product not found in Open Food Facts database' && 
+                !productName.startsWith('Error:') && (
+                  <View style={{ marginVertical: 10, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#2E7D32" />
+                    <ThemedText style={{ fontSize: 12, marginTop: 5, color: '#666' }}>Evaluating product...</ThemedText>
+                  </View>
                 )
               )}
 
