@@ -14,9 +14,16 @@ export default function HomeScreen() {
     router.push('/filters');
   };
 
+  // debug: log asset resolution
+  React.useEffect(() => {
+    const resolved = Image.resolveAssetSource(background);
+    console.log('background asset', resolved);
+  }, []);
+
   return (
     <ImageBackground source={background} style={styles.container} resizeMode="cover">
       <ThemedView style={styles.overlay}>
+        <ThemedText>Debug: Screen loaded</ThemedText>
         <TouchableOpacity style={styles.startButton} onPress={handleStart}>
           <ThemedText style={styles.startButtonText}>Start</ThemedText>
         </TouchableOpacity>
