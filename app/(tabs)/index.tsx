@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignItems: 'center',
     width: '100%',
-    paddingBottom: 48,
+    paddingBottom: 10,
   },
   startButton: {
     backgroundColor: '#007aff',
