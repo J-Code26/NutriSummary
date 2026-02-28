@@ -30,11 +30,8 @@ function MultiSelectDropdown({
   return (
     <View style={styles.field}>
       <ThemedText style={styles.label}>{label}</ThemedText>
-      <TouchableOpacity
-        style={styles.dropdown}
-        onPress={() => setOpen(true)}
-      >
-        <ThemedText>
+      <TouchableOpacity style={styles.dropdown} onPress={() => setOpen(true)}>
+        <ThemedText style={styles.dropdownText}>
           {selected.length > 0 ? selected.join(', ') : `Select ${label.toLowerCase()}`}
         </ThemedText>
       </TouchableOpacity>
@@ -90,11 +87,8 @@ function SingleSelectDropdown({
   return (
     <View style={styles.field}>
       <ThemedText style={styles.label}>{label}</ThemedText>
-      <TouchableOpacity
-        style={styles.dropdown}
-        onPress={() => setOpen(true)}
-      >
-        <ThemedText>
+      <TouchableOpacity style={styles.dropdown} onPress={() => setOpen(true)}>
+        <ThemedText style={styles.dropdownText}>
           {selected ? selected : `Select ${label.toLowerCase()}`}
         </ThemedText>
       </TouchableOpacity>
@@ -290,10 +284,13 @@ const styles = StyleSheet.create({
   },
   label: {
     marginBottom: 5,
+    color: '#fff',
   },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
+    backgroundColor: '#fff',
+    color: '#000',
     borderRadius: 4,
     paddingHorizontal: 10,
     height: 40,
@@ -301,10 +298,14 @@ const styles = StyleSheet.create({
   dropdown: {
     borderWidth: 1,
     borderColor: '#ccc',
+    backgroundColor: '#fff',
     borderRadius: 4,
     paddingHorizontal: 10,
     height: 40,
     justifyContent: 'center',
+  },
+  dropdownText: {
+    color: '#000',
   },
   modalOverlay: {
     flex: 1,
