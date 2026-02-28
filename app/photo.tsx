@@ -1,5 +1,6 @@
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -7,6 +8,61 @@ import { ThemedView } from '@/components/themed-view';
 
 export default function PhotoScreen() {
   const router = useRouter();
+  const [permission, requestPermission] = useCameraPermissions();
+
+  useEffect(() => {
+    if (!permission?.granted) {
+      requestPermission();
+    }
+  }, [permission, requestPermission]);
+
+  if (!permission) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.navBar}>
+          <TouchableOpacity onPress={() => router.push('/')} style={styles.navButton}>
+            <ThemedText style={styles.navText}>Home</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/filters')} style={styles.navButton}>
+            <ThemedText style={styles.navText}>Filters</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push('/photo')}
+            style={[styles.navButton, styles.navButtonActive]}
+          >
+            <ThemedText style={[styles.navText, styles.navTextActive]}>Photo</ThemedText>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.content}>
+          <ThemedText>Requesting camera permission...</ThemedText>
+        </View>
+      </ThemedView>
+    );
+  }
+
+  if (!permission.granted) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.navBar}>
+          <TouchableOpacity onPress={() => router.push('/')} style={styles.navButton}>
+            <ThemedText style={styles.navText}>Home</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/filters')} style={styles.navButton}>
+            <ThemedText style={styles.navText}>Filters</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push('/photo')}
+            style={[styles.navButton, styles.navButtonActive]}
+          >
+            <ThemedText style={[styles.navText, styles.navTextActive]}>Photo</ThemedText>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.content}>
+          <ThemedText>Camera access denied. Please enable camera permissions.</ThemedText>
+        </View>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -26,9 +82,9 @@ export default function PhotoScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Content - Empty for now */}
+      {/* Camera View */}
       <View style={styles.content}>
-        <ThemedText type="title">Photo Screen</ThemedText>
+        <CameraView style={styles.cameraBox} facing="back" />
       </View>
     </ThemedView>
   );
@@ -68,5 +124,14 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  cameraBox: {
+    width: '90%',
+    height: 500,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 3,
+    borderColor: '#2E7D32',
   },
 });
