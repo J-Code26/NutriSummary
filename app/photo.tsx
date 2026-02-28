@@ -48,8 +48,12 @@ export default function PhotoScreen() {
   };
 
   const handleBarcodeScanned = ({ type, data }: { type: string; data: string }) => {
+    console.log('Barcode detected!', type, data);
     if (!scanningRef.current && cameraEnabled) {
+      console.log('Processing barcode...');
       fetchProductInfo(data);
+    } else {
+      console.log('Scan blocked - cooldown active');
     }
   };
 
@@ -129,24 +133,40 @@ export default function PhotoScreen() {
       <View style={styles.content}>
         <View style={styles.cameraWrapper}>
           {cameraEnabled ? (
-            <CameraView
-              style={styles.cameraBox}
-              facing="back"
-              barcodeScannerSettings={{
-                barcodeTypes: [
-                  'ean13',
-                  'ean8',
-                  'upc_a',
-                  'upc_e',
-                  'code128',
-                  'code39',
-                  'qr',
-                ],
-              }}
-              onBarcodeScanned={handleBarcodeScanned}
-            />
+            <>
+              <CameraView
+                style={styles.cameraBox}
+                facing="back"
+                barcodeScannerSettings={{
+                  barcodeTypes: [
+                    'ean13',
+                    'ean8',
+                    'upc_a',
+                    'upc_e',
+                    'code128',
+                    'code39',
+                    'qr',
+                  ],
+                }}
+                onBarcodeScanned={handleBarcodeScanned}
+              />
+              
+              {/* Always show scanning frame */}
+              <View style={styles.scanFrame}>
+                <View style={styles.scanCorner} />
+              </View>
+              
+              {/* Status indicator */}
+              <View style={styles.statusBar}>
+                <ThemedText style={styles.statusText}>
+                  {isScanning ? '📊 Processing...' : '📷 Point at barcode'}
+                </ThemedText>
+              </View>
+            </>
           ) : (
-            <View style={[styles.cameraBox, styles.cameraOffBox]} />
+            <View style={[styles.cameraBox, styles.cameraOffBox]}>
+              <ThemedText style={{ color: '#666' }}>Camera Off</ThemedText>
+            </View>
           )}
           
           {/* Scanning Indicator */}
@@ -251,6 +271,46 @@ const styles = StyleSheet.create({
     backgroundColor: '#ccc',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  scanFrame: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 250,
+    height: 150,
+    marginLeft: -125,
+    marginTop: -75,
+    borderWidth: 3,
+    borderColor: '#2E7D32',
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+  },
+  scanCorner: {
+    position: 'absolute',
+    top: -2,
+    left: -2,
+    width: 40,
+    height: 40,
+    borderTopWidth: 5,
+    borderLeftWidth: 5,
+    borderColor: '#ade866',
+    borderRadius: 4,
+  },
+  statusBar: {
+    position: 'absolute',
+    top: 20,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  statusText: {
+    backgroundColor: 'rgba(46, 125, 50, 0.9)',
+    color: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    fontSize: 16,
+    fontWeight: '600',
   },
   scanningOverlay: {
     position: 'absolute',
