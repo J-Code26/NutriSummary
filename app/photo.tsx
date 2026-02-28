@@ -1,10 +1,135 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
-import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+
+// Web camera component
+function WebCamera({ 
+  onBarcodeScanned, 
+  isEnabled 
+}: { 
+  onBarcodeScanned: (data: { type: string; data: string }) => void;
+  isEnabled: boolean;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [stream, setStream] = React.useState<MediaStream | null>(null);
+
+  useEffect(() => {
+    if (!isEnabled) {
+      // Stop camera when disabled
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        setStream(null);
+      }
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+        scanIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Start camera for web
+    const startCamera = async () => {
+      try {
+        const mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          setStream(mediaStream);
+          
+          // Start scanning
+          videoRef.current.addEventListener('loadedmetadata', () => {
+            startScanning();
+          });
+        }
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+      }
+    };
+
+    const startScanning = async () => {
+      // Dynamically import ZXing for web only
+      const { BrowserMultiFormatReader } = await import('@zxing/library');
+      const codeReader = new BrowserMultiFormatReader();
+
+      scanIntervalRef.current = setInterval(async () => {
+        if (videoRef.current && canvasRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+          const canvas = canvasRef.current;
+          const video = videoRef.current;
+          
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0);
+            
+            try {
+              const result = await codeReader.decodeFromCanvas(canvas);
+              if (result) {
+                console.log('Web barcode detected:', result.getText());
+                onBarcodeScanned({
+                  type: result.getBarcodeFormat().toString(),
+                  data: result.getText()
+                });
+                // Stop scanning briefly after detection
+                if (scanIntervalRef.current) {
+                  clearInterval(scanIntervalRef.current);
+                }
+              }
+            } catch (err) {
+              // No barcode found in this frame, continue scanning
+            }
+          }
+        }
+      }, 300); // Scan every 300ms
+    };
+
+    startCamera();
+
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+      }
+    };
+  }, [isEnabled, onBarcodeScanned]);
+
+  if (!isEnabled) {
+    return (
+      <View style={[styles.cameraBox, styles.cameraOffBox]}>
+        <ThemedText style={{ color: '#666' }}>Camera Off</ThemedText>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.cameraBox}>
+      <video
+        ref={videoRef as any}
+        autoPlay
+        playsInline
+        muted
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          borderRadius: 12,
+        }}
+      />
+      <canvas ref={canvasRef as any} style={{ display: 'none' }} />
+    </View>
+  );
+}
 
 export default function PhotoScreen() {
   const router = useRouter();
@@ -58,57 +183,60 @@ export default function PhotoScreen() {
   };
 
   useEffect(() => {
-    if (!permission?.granted) {
+    if (Platform.OS !== 'web' && !permission?.granted) {
       requestPermission();
     }
   }, [permission, requestPermission]);
 
-  if (!permission) {
-    return (
-      <ThemedView style={styles.container}>
-        <View style={styles.navBar}>
-          <TouchableOpacity onPress={() => router.push('/')} style={styles.navButton}>
-            <ThemedText style={styles.navText}>Home</ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/filters')} style={styles.navButton}>
-            <ThemedText style={styles.navText}>Filters</ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => router.push('/photo')}
-            style={[styles.navButton, styles.navButtonActive]}
-          >
-            <ThemedText style={[styles.navText, styles.navTextActive]}>Photo</ThemedText>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.content}>
-          <ThemedText>Requesting camera permission...</ThemedText>
-        </View>
-      </ThemedView>
-    );
-  }
+  // Skip permission checks for web
+  if (Platform.OS !== 'web') {
+    if (!permission) {
+      return (
+        <ThemedView style={styles.container}>
+          <View style={styles.navBar}>
+            <TouchableOpacity onPress={() => router.push('/')} style={styles.navButton}>
+              <ThemedText style={styles.navText}>Home</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/filters')} style={styles.navButton}>
+              <ThemedText style={styles.navText}>Filters</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push('/photo')}
+              style={[styles.navButton, styles.navButtonActive]}
+            >
+              <ThemedText style={[styles.navText, styles.navTextActive]}>Photo</ThemedText>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.content}>
+            <ThemedText>Requesting camera permission...</ThemedText>
+          </View>
+        </ThemedView>
+      );
+    }
 
-  if (!permission.granted) {
-    return (
-      <ThemedView style={styles.container}>
-        <View style={styles.navBar}>
-          <TouchableOpacity onPress={() => router.push('/')} style={styles.navButton}>
-            <ThemedText style={styles.navText}>Home</ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/filters')} style={styles.navButton}>
-            <ThemedText style={styles.navText}>Filters</ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => router.push('/photo')}
-            style={[styles.navButton, styles.navButtonActive]}
-          >
-            <ThemedText style={[styles.navText, styles.navTextActive]}>Photo</ThemedText>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.content}>
-          <ThemedText>Camera access denied. Please enable camera permissions.</ThemedText>
-        </View>
-      </ThemedView>
-    );
+    if (!permission.granted) {
+      return (
+        <ThemedView style={styles.container}>
+          <View style={styles.navBar}>
+            <TouchableOpacity onPress={() => router.push('/')} style={styles.navButton}>
+              <ThemedText style={styles.navText}>Home</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/filters')} style={styles.navButton}>
+              <ThemedText style={styles.navText}>Filters</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push('/photo')}
+              style={[styles.navButton, styles.navButtonActive]}
+            >
+              <ThemedText style={[styles.navText, styles.navTextActive]}>Photo</ThemedText>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.content}>
+            <ThemedText>Camera access denied. Please enable camera permissions.</ThemedText>
+          </View>
+        </ThemedView>
+      );
+    }
   }
 
   return (
@@ -132,41 +260,68 @@ export default function PhotoScreen() {
       {/* Camera View */}
       <View style={styles.content}>
         <View style={styles.cameraWrapper}>
-          {cameraEnabled ? (
+          {Platform.OS === 'web' ? (
+            // Web-specific camera
             <>
-              <CameraView
-                style={styles.cameraBox}
-                facing="back"
-                barcodeScannerSettings={{
-                  barcodeTypes: [
-                    'ean13',
-                    'ean8',
-                    'upc_a',
-                    'upc_e',
-                    'code128',
-                    'code39',
-                    'qr',
-                  ],
-                }}
+              <WebCamera 
                 onBarcodeScanned={handleBarcodeScanned}
+                isEnabled={cameraEnabled}
               />
               
-              {/* Always show scanning frame */}
-              <View style={styles.scanFrame}>
-                <View style={styles.scanCorner} />
-              </View>
-              
-              {/* Status indicator */}
-              <View style={styles.statusBar}>
-                <ThemedText style={styles.statusText}>
-                  {isScanning ? '📊 Processing...' : '📷 Point at barcode'}
-                </ThemedText>
-              </View>
+              {cameraEnabled && (
+                <>
+                  {/* Always show scanning frame */}
+                  <View style={styles.scanFrame}>
+                    <View style={styles.scanCorner} />
+                  </View>
+                  
+                  {/* Status indicator */}
+                  <View style={styles.statusBar}>
+                    <ThemedText style={styles.statusText}>
+                      {isScanning ? '📊 Processing...' : '📷 Point at barcode'}
+                    </ThemedText>
+                  </View>
+                </>
+              )}
             </>
           ) : (
-            <View style={[styles.cameraBox, styles.cameraOffBox]}>
-              <ThemedText style={{ color: '#666' }}>Camera Off</ThemedText>
-            </View>
+            // Native mobile camera
+            cameraEnabled ? (
+              <>
+                <CameraView
+                  style={styles.cameraBox}
+                  facing="back"
+                  barcodeScannerSettings={{
+                    barcodeTypes: [
+                      'ean13',
+                      'ean8',
+                      'upc_a',
+                      'upc_e',
+                      'code128',
+                      'code39',
+                      'qr',
+                    ],
+                  }}
+                  onBarcodeScanned={handleBarcodeScanned}
+                />
+                
+                {/* Always show scanning frame */}
+                <View style={styles.scanFrame}>
+                  <View style={styles.scanCorner} />
+                </View>
+                
+                {/* Status indicator */}
+                <View style={styles.statusBar}>
+                  <ThemedText style={styles.statusText}>
+                    {isScanning ? '📊 Processing...' : '📷 Point at barcode'}
+                  </ThemedText>
+                </View>
+              </>
+            ) : (
+              <View style={[styles.cameraBox, styles.cameraOffBox]}>
+                <ThemedText style={{ color: '#666' }}>Camera Off</ThemedText>
+              </View>
+            )
           )}
           
           {/* Scanning Indicator */}
