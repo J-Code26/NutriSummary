@@ -1,15 +1,18 @@
 import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Button, Platform, StyleSheet } from 'react-native';
 
-import { Collapsible } from '@/components/ui/collapsible';
 import { ExternalLink } from '@/components/external-link';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { Collapsible } from '@/components/ui/collapsible';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Fonts } from '@/constants/theme';
 
 export default function TabTwoScreen() {
+  const router = useRouter();
+
   return (
     <ParallaxScrollView
       headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
@@ -21,15 +24,20 @@ export default function TabTwoScreen() {
           style={styles.headerImage}
         />
       }>
+      {/* NutriSummary header and start button */}
       <ThemedView style={styles.titleContainer}>
         <ThemedText
           type="title"
           style={{
             fontFamily: Fonts.rounded,
           }}>
-          Explore
+          NutriSummary
         </ThemedText>
       </ThemedView>
+      <ThemedView style={styles.buttonContainer}>
+        <Button title="Start" onPress={() => router.push('/nutri-summary')} />
+      </ThemedView>
+
       <ThemedText>This app includes example code to help you get started.</ThemedText>
       <Collapsible title="File-based routing">
         <ThemedText>
@@ -108,5 +116,9 @@ const styles = StyleSheet.create({
   titleContainer: {
     flexDirection: 'row',
     gap: 8,
+  },
+  buttonContainer: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
   },
 });
