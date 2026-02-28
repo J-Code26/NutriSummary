@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system';
+import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { Modal, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -123,6 +124,7 @@ function SingleSelectDropdown({
 }
 
 export default function FiltersScreen() {
+  const router = useRouter();
   const [allergies, setAllergies] = React.useState<string[]>([]);
   const [diets, setDiets] = React.useState<string[]>([]);
   const [medicalRestrictions, setMedicalRestrictions] = React.useState<string[]>([]);
@@ -156,6 +158,22 @@ export default function FiltersScreen() {
 
   return (
     <ThemedView style={styles.container} lightColor="#ade866" darkColor="#0A2F0A">
+      {/* Top Navigation */}
+      <View style={styles.navBar}>
+        <TouchableOpacity onPress={() => router.push('/')} style={styles.navButton}>
+          <ThemedText style={styles.navText}>Home</ThemedText>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => router.push('/filters')}
+          style={[styles.navButton, styles.navButtonActive]}
+        >
+          <ThemedText style={[styles.navText, styles.navTextActive]}>Filters</ThemedText>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push('/photo')} style={styles.navButton}>
+          <ThemedText style={styles.navText}>Photo</ThemedText>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView contentContainerStyle={styles.scroll}>
         <ThemedText type="title" style={styles.title}>
           Filters
@@ -263,6 +281,13 @@ export default function FiltersScreen() {
           setSelected={setReligions}
         />
 
+        <TouchableOpacity
+          style={styles.proceedButton}
+          onPress={() => router.push('/photo')}
+        >
+          <ThemedText style={styles.proceedButtonText}>Proceed</ThemedText>
+        </TouchableOpacity>
+
       </ScrollView>
     </ThemedView>
   );
@@ -271,6 +296,31 @@ export default function FiltersScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  navBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    backgroundColor: '#2E7D32',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+  },
+  navButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  navButtonActive: {
+    backgroundColor: '#1B5E20',
+  },
+  navText: {
+    color: '#fff',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  navTextActive: {
+    color: '#ade866',
   },
   scroll: {
     padding: 20,
@@ -332,5 +382,19 @@ const styles = StyleSheet.create({
     marginTop: 10,
     alignSelf: 'flex-end',
     padding: 10,
+  },
+  proceedButton: {
+    backgroundColor: '#2E7D32',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginTop: 30,
+    marginBottom: 20,
+  },
+  proceedButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
   },
 });

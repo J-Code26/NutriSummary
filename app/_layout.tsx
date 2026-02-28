@@ -16,6 +16,7 @@ export default function RootLayout() {
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="filters" options={{ title: 'Filters' }} />
+        <Stack.Screen name="photo" options={{ title: 'Photo' }} />
       </Stack>
     </ThemeProvider>
   );
