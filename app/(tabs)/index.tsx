@@ -1,11 +1,11 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { ImageBackground, StyleSheet, TouchableOpacity } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
-const logo = require('@/assets/images/nutri-logo.png');
+const background = require('@/assets/images/nutri-logo.png');
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -15,25 +15,29 @@ export default function HomeScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <Image source={logo} style={styles.logo} />
-      <TouchableOpacity style={styles.startButton} onPress={handleStart}>
-        <ThemedText style={styles.startButtonText}>Start</ThemedText>
-      </TouchableOpacity>
-    </ThemedView>
+    <ImageBackground source={background} style={styles.container} resizeMode="cover">
+      <ThemedView style={styles.overlay}>
+        <TouchableOpacity style={styles.startButton} onPress={handleStart}>
+          <ThemedText style={styles.startButtonText}>Start</ThemedText>
+        </TouchableOpacity>
+      </ThemedView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  // full screen container for background
   container: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  logo: {
-    width: 200,
-    height: 200,
-    marginBottom: 20,
+  overlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    width: '100%',
   },
   startButton: {
     backgroundColor: '#007aff',
