@@ -18,10 +18,12 @@ function WebCamera({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [manualBarcode, setManualBarcode] = React.useState('');
   const [isScanning, setIsScanning] = React.useState(false);
+  const [debugInfo, setDebugInfo] = React.useState('Initializing...');
   const detectedRef = useRef(false);
   const codeReaderRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const frameCountRef = useRef(0);
 
   useEffect(() => {
     if (!isEnabled) {
@@ -40,19 +42,25 @@ function WebCamera({
     // Start barcode scanner with canvas frame capture
     const startScanner = async () => {
       try {
-        console.log('Starting barcode scanner with canvas capture...');
+        const msg = 'Starting barcode scanner...';
+        console.log(msg);
+        setDebugInfo(msg);
+        
         const { BrowserMultiFormatReader } = await import('@zxing/browser');
+        setDebugInfo('ZXing imported successfully');
         
         // Wait for video element to be ready
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise(resolve => setTimeout(resolve, 500));
         
         if (!videoRef.current || !canvasRef.current) {
-          console.error('Video or canvas element not found');
+          const err = 'Video or canvas element not found';
+          console.error(err);
+          setDebugInfo(err);
           return;
         }
 
         // Get camera stream
-        console.log('Getting camera stream...');
+        setDebugInfo('Requesting camera access...');
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             facingMode: 'environment',
@@ -62,23 +70,35 @@ function WebCamera({
         });
         streamRef.current = stream;
         videoRef.current.srcObject = stream;
+        setDebugInfo('Camera stream obtained');
         
         // Wait for video to load
         await new Promise(resolve => {
-          videoRef.current?.addEventListener('loadedmetadata', resolve, { once: true });
+          const timeout = setTimeout(() => {
+            console.warn('Video loadedmetadata timeout - proceeding anyway');
+            resolve(true);
+          }, 2000);
+          
+          videoRef.current?.addEventListener('loadedmetadata', () => {
+            clearTimeout(timeout);
+            resolve(true);
+          }, { once: true });
         });
         
-        console.log('Creating code reader...');
-        codeReaderRef.current = new BrowserMultiFormatReader();
+        setDebugInfo(`Video dimensions: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
         
-        console.log('Starting frame capture loop...');
+        codeReaderRef.current = new BrowserMultiFormatReader();
+        setDebugInfo('ZXing reader created');
+        
         setIsScanning(true);
+        frameCountRef.current = 0;
         
         // Capture frames periodically and scan them
         scanIntervalRef.current = setInterval(async () => {
           if (!videoRef.current || !canvasRef.current || !codeReaderRef.current) return;
           
           try {
+            frameCountRef.current++;
             const ctx = canvasRef.current.getContext('2d');
             if (!ctx) return;
             
@@ -89,12 +109,18 @@ function WebCamera({
             // Draw video frame to canvas
             ctx.drawImage(videoRef.current, 0, 0);
             
+            // Log every 10th frame
+            if (frameCountRef.current % 10 === 0) {
+              console.log(`Frame ${frameCountRef.current} scanned, canvas size: ${canvasRef.current.width}x${canvasRef.current.height}`);
+            }
+            
             // Try to decode from canvas
             try {
               const result = await codeReaderRef.current.decodeFromCanvas(canvasRef.current);
               if (result && !detectedRef.current) {
                 const code = result.getText();
-                console.log('Barcode detected:', code);
+                console.log('✅ Barcode detected:', code);
+                setDebugInfo(`Barcode found: ${code}`);
                 
                 detectedRef.current = true;
                 onBarcodeScanned({
@@ -102,23 +128,31 @@ function WebCamera({
                   data: code
                 });
                 
-                // Reset detection flag after 2 seconds
+                // Reset detection flag after 3 seconds
                 setTimeout(() => {
                   detectedRef.current = false;
-                }, 2000);
+                  setDebugInfo('Ready for next barcode');
+                }, 3000);
               }
-            } catch (e) {
-              // No barcode in this frame, continue scanning
+            } catch (e: any) {
+              // No barcode in this frame, silently continue
+              // Only log errors that aren't "not found" errors
+              if (frameCountRef.current % 30 === 0) {
+                setDebugInfo(`Scanned ${frameCountRef.current} frames, no barcode yet`);
+              }
             }
           } catch (err) {
             console.error('Frame capture error:', err);
+            setDebugInfo(`Error: ${err}`);
           }
         }, 300); // Scan every 300ms
         
-        console.log('Scanner started successfully!');
+        setDebugInfo('Scanner started - point at barcode');
+        console.log('✅ Scanner started successfully!');
         
       } catch (error: any) {
         console.error('Error starting scanner:', error);
+        setDebugInfo(`Scanner error: ${error.message}`);
       }
     };
 
@@ -189,10 +223,14 @@ function WebCamera({
           <ThemedText style={styles.scanManualButtonText}>Scan</ThemedText>
         </TouchableOpacity>
       </View>
-      
+
+      {/* Debug info and status */}
       <View style={styles.webHelpText}>
-        <ThemedText style={{ color: '#fff', fontSize: 12, textAlign: 'center' }}>
-          {isScanning ? '📊 Scanning... Point at barcode' : '📷 Starting camera...'}
+        <ThemedText style={{ color: '#fff', fontSize: 12, textAlign: 'center', marginBottom: 4 }}>
+          {debugInfo}
+        </ThemedText>
+        <ThemedText style={{ color: '#fff', fontSize: 10, textAlign: 'center' }}>
+          {isScanning ? `Scanned ${frameCountRef.current} frames` : 'Starting camera...'}
         </ThemedText>
       </View>
     </View>
