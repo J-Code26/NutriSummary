@@ -136,31 +136,6 @@ function WebCamera({
             
             // Draw original frame
             scanCtx.drawImage(videoRef.current, 0, 0);
-            
-            // Get image data for preprocessing
-            const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
-            const data = imageData.data;
-            
-            // Apply edge enhancement to handle glare and improve contrast
-            // This helps detect vertical barcodes with glare
-            const tempData = new Uint8ClampedArray(data);
-            for (let i = 0; i < data.length; i += 4) {
-              // Convert to grayscale for processing
-              const gray = tempData[i] * 0.299 + tempData[i + 1] * 0.587 + tempData[i + 2] * 0.114;
-              
-              // Enhance edge contrast (make blacks blacker, whites whiter)
-              const enhanced = gray < 128 ? gray * 0.7 : 128 + (gray - 128) * 1.5;
-              
-              data[i] = enhanced;      // R
-              data[i + 1] = enhanced;  // G
-              data[i + 2] = enhanced;  // B
-              // Keep alpha unchanged
-            }
-            
-            // Put enhanced image back
-            scanCtx.putImageData(imageData, 0, 0);
-            
-            // Try to decode from enhanced canvas
             try {
               const result = await codeReaderRef.current.decodeFromCanvas(scanCanvas);
               if (result && !detectedRef.current) {
@@ -180,9 +155,13 @@ function WebCamera({
                   detectedRef.current = false;
                   setDebugInfo('Ready for next barcode');
                 }, 1500);
+                              return;
               }
             } catch (e) {
-              // Try rotated version for vertical barcodes
+              // Continue to rotation attempt if normal scan fails
+            }
+            
+            // Try rotated version every 3rd frame for vertical barcodes
               if (frameCountRef.current % 3 === 0) {
                 try {
                   // Rotate canvas 90 degrees and try again (for vertical barcodes)
@@ -195,30 +174,35 @@ function WebCamera({
                     rotCtx.rotate(Math.PI / 2);
                     rotCtx.drawImage(scanCanvas, -scanCanvas.width / 2, -scanCanvas.height / 2);
                     
-                    const resultRotated = await codeReaderRef.current.decodeFromCanvas(rotatedCanvas);
-                    if (resultRotated && !detectedRef.current) {
-                      const code = resultRotated.getText();
-                      const format = resultRotated.getBarcodeFormat()?.toString() || 'unknown';
-                      console.log('✅ Barcode detected (rotated):', code, 'Format:', format);
-                      setDebugInfo(`Barcode found (rotated): ${code}`);
-                      
-                      detectedRef.current = true;
-                      onBarcodeScanned({
-                        type: format,
-                        data: code
-                      });
-                      
-                      setTimeout(() => {
-                        detectedRef.current = false;
-                        setDebugInfo('Ready for next barcode');
-                      }, 1500);
+                    try {
+                      const resultRotated = await codeReaderRef.current.decodeFromCanvas(rotatedCanvas);
+                      if (resultRotated && !detectedRef.current) {
+                        const code = resultRotated.getText();
+                        const format = resultRotated.getBarcodeFormat()?.toString() || 'unknown';
+                        console.log('✅ Barcode detected (rotated 90°):', code, 'Format:', format);
+                        setDebugInfo(`Barcode found (rotated): ${code}`);
+                        
+                        detectedRef.current = true;
+                        onBarcodeScanned({
+                          type: format,
+                          data: code
+                        });
+                        
+                        setTimeout(() => {
+                          detectedRef.current = false;
+                          setDebugInfo('Ready for next barcode');
+                        }, 1500);
+                        return;
+                      }
+                    } catch (e2) {
+                      // No barcode in rotated frame either
+                    }
                     }
                   }
-                } catch (e2) {
-                  // Silent - no barcode in this frame
+                } catch (rotErr) {
+                  console.log('Rotation scan error:', rotErr);
                 }
               }
-            }
           } catch (err) {
             console.error('Scan error:', err);
           }
