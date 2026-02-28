@@ -161,7 +161,7 @@ export default function FiltersScreen() {
   }, [allergies, diets, medicalRestrictions, religions, weight, age, height, gender]);
 
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView style={styles.container} lightColor="#EAF9EA" darkColor="#0A2F0A">
       <ScrollView contentContainerStyle={styles.scroll}>
         <ThemedText type="title" style={styles.title}>
           Filters
