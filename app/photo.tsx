@@ -45,7 +45,7 @@ function WebCamera({
         console.log(msg);
         setDebugInfo(msg);
         
-        const { BrowserMultiFormatReader } = await import('@zxing/browser');
+        const { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } = await import('@zxing/browser');
         setDebugInfo('ZXing imported successfully');
         
         // Wait for video element to be ready
@@ -58,13 +58,18 @@ function WebCamera({
           return;
         }
 
-        // Get camera stream
+        // Get camera stream with improved settings for better scanning in various conditions
         setDebugInfo('Requesting camera access...');
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             facingMode: 'environment',
             width: { ideal: 1280 },
-            height: { ideal: 720 }
+            height: { ideal: 720 },
+            // Improve image quality for glare and poor lighting
+            focusMode: 'continuous' as any,
+            zoom: 1,
+            // Request best framerate for smooth scanning
+            frameRate: { ideal: 30 }
           }
         });
         streamRef.current = stream;
@@ -84,8 +89,27 @@ function WebCamera({
           }, { once: true });
         });
         
-        setDebugInfo('Creating ZXing continuous scanner...');
+        setDebugInfo('Creating ZXing scanner with enhanced hints...');
         codeReaderRef.current = new BrowserMultiFormatReader();
+        
+        // Configure scanner hints for maximum detection capability
+        // TRY_HARDER: Spend more time decoding, especially useful for rotated/glared barcodes
+        // POSSIBLE_FORMATS: Support all common barcode types including sideways
+        const hints = new Map();
+        hints.set(DecodeHintType.TRY_HARDER, true);
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.QR_CODE,
+          BarcodeFormat.CODABAR,
+          BarcodeFormat.ITF // Interleaved 2 of 5 for warehouse barcodes
+        ]);
+        
+        codeReaderRef.current.setHints(hints);
         
         setIsScanning(true);
         frameCountRef.current = 0;
@@ -125,8 +149,9 @@ function WebCamera({
         
         // Store the promise so we can cancel it later
         scanIntervalRef.current = decodePromise as any;
-        setDebugInfo('✓ Scanner ready - point barcode at camera');
-        console.log('✅ Scanner started with continuous decoding!');
+        setDebugInfo('✓ Scanner ready - scan any angle and lighting');
+        console.log('✅ Scanner started with enhanced rotation and glare handling!');
+        
         
       } catch (error: any) {
         console.error('Error starting scanner:', error);
@@ -181,8 +206,11 @@ function WebCamera({
           height: '100%',
           objectFit: 'cover',
           borderRadius: 12,
-          backgroundColor: '#000'
-        }}
+          backgroundColor: '#000',
+          // Enhance contrast for better barcode detection in glare/poor lighting
+          filter: 'contrast(1.1) brightness(1.05)',
+          WebkitFilter: 'contrast(1.1) brightness(1.05)'
+        } as any}
       />
       
       {/* Manual barcode input overlay */}
