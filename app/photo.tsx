@@ -65,34 +65,20 @@ function WebCamera({
             facingMode: 'environment',
             width: { ideal: 1280 },
             height: { ideal: 720 },
-            // Enable continuous autofocus for instant focusing
-            focusMode: 'continuous' as any,
-            // Request best framerate for smooth scanning
-            frameRate: { ideal: 30 }
+            frameRate: { ideal: 30 },
+            // Use advanced constraints for focus (must be in advanced array for browser compatibility)
+            advanced: [
+              { focusMode: 'continuous' } as any,
+              { focusDistance: 0 } as any
+            ] as any
           }
         });
         streamRef.current = stream;
         videoRef.current.srcObject = stream;
         
-        // Optimize video track for better focus and image quality
-        try {
-          const videoTrack = stream.getVideoTracks()[0];
-          if (videoTrack && videoTrack.applyConstraints) {
-            // Enable continuous autofocus (most compatible)
-            await videoTrack.applyConstraints({
-              advanced: [
-                { focusMode: 'continuous' } as any
-              ]
-            } as any);
-          }
-        } catch (e) {
-          // Continue if constraints not supported - camera will use defaults
-          console.log('Video constraints not fully supported on this device');
-        }
-        
         setDebugInfo('Camera stream obtained');
         
-        // Wait for video to load
+        // Wait for video to load and be ready
         await new Promise(resolve => {
           const timeout = setTimeout(() => {
             console.warn('Video loadedmetadata timeout - proceeding anyway');
@@ -104,6 +90,27 @@ function WebCamera({
             resolve(true);
           }, { once: true });
         });
+        
+        // Additional wait to let video stabilize and focus
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        setDebugInfo('Optimizing focus...');
+        
+        // Try to trigger continuous focus on the video track
+        try {
+          const videoTrack = streamRef.current?.getVideoTracks()[0];
+          if (videoTrack && videoTrack.applyConstraints) {
+            await videoTrack.applyConstraints({
+              advanced: [
+                { focusMode: 'continuous' } as any,
+                { focusDistance: 0 } as any,
+                { torch: false } as any // Disable flash if it was on
+              ]
+            } as any);
+          }
+        } catch (e) {
+          console.log('Could not apply focus constraints:', e);
+        }
         
         setDebugInfo('Creating ZXing scanner...');
         codeReaderRef.current = new BrowserMultiFormatReader();
@@ -183,6 +190,20 @@ function WebCamera({
     }
   };
 
+  const handleVideoTap = () => {
+    // Trigger focus when user taps the video
+    if (streamRef.current) {
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      if (videoTrack && videoTrack.applyConstraints) {
+        videoTrack.applyConstraints({
+          advanced: [
+            { focusMode: 'continuous' } as any
+          ]
+        } as any).catch(err => console.log('Focus tap failed:', err));
+      }
+    }
+  };
+
   if (!isEnabled) {
     return (
       <View style={[styles.cameraBox, styles.cameraOffBox]}>
@@ -200,23 +221,34 @@ function WebCamera({
         </ThemedText>
       </View>
 
-      {/* Video element */}
-      <video 
-        ref={videoRef as any}
-        autoPlay
-        playsInline
-        muted
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          borderRadius: 12,
-          backgroundColor: '#000',
-          // Enhance contrast for better barcode detection in glare/poor lighting
-          filter: 'contrast(1.1) brightness(1.05)',
-          WebkitFilter: 'contrast(1.1) brightness(1.05)'
+      {/* Video element with tap-to-focus */}
+      <View 
+        onClick={handleVideoTap}
+        style={{ 
+          width: '100%', 
+          height: '100%', 
+          cursor: 'pointer',
+          position: 'absolute',
+          top: 0,
+          left: 0
         } as any}
-      />
+      >
+        <video 
+          ref={videoRef as any}
+          autoPlay
+          muted
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            borderRadius: 12,
+            backgroundColor: '#000',
+            // Enhance contrast for better barcode detection in glare/poor lighting
+            filter: 'contrast(1.2) brightness(1.1) saturate(1.1)',
+            WebkitFilter: 'contrast(1.2) brightness(1.1) saturate(1.1)'
+          } as any}
+        />
+      </View>
       
       {/* Manual barcode input overlay */}
       <View style={styles.manualInputContainer}>
@@ -237,7 +269,7 @@ function WebCamera({
       {/* Status indicator only */}
       <View style={{ position: 'absolute', bottom: 80, left: 20, right: 20, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 6 }}>
         <ThemedText style={{ color: '#fff', fontSize: 10, textAlign: 'center' }}>
-          {isScanning ? '🔍 Scanning - Point barcode at camera' : '📷 Initializing camera...'}
+          {isScanning ? '🔍 Scanning | Tap camera to focus' : '📷 Initializing camera...'}
         </ThemedText>
       </View>
     </View>
