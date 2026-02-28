@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, TextInput, View, TouchableOpacity, Modal } from 'react-native';
+import { Modal, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -67,6 +67,66 @@ function MultiSelectDropdown({
   );
 }
 
+// single-select dropdown to enforce only one choice
+function SingleSelectDropdown({
+  label,
+  options,
+  selected,
+  setSelected,
+}: {
+  label: string;
+  options: string[];
+  selected: string;
+  setSelected: (v: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+
+  const choose = (item: string) => {
+    setSelected(item);
+    setOpen(false);
+  };
+
+  return (
+    <View style={styles.field}>
+      <ThemedText style={styles.label}>{label}</ThemedText>
+      <TouchableOpacity
+        style={styles.dropdown}
+        onPress={() => setOpen(true)}
+      >
+        <ThemedText>
+          {selected ? selected : `Select ${label.toLowerCase()}`}
+        </ThemedText>
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ScrollView>
+              {options.map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  onPress={() => choose(opt)}
+                  style={styles.option}
+                >
+                  <ThemedText>
+                    {selected === opt ? '🔘 ' : '⚪️ '}
+                    {opt}
+                  </ThemedText>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setOpen(false)}
+            >
+              <ThemedText>Done</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
 export default function FiltersScreen() {
   const [allergies, setAllergies] = React.useState<string[]>([]);
   const [diets, setDiets] = React.useState<string[]>([]);
@@ -75,6 +135,7 @@ export default function FiltersScreen() {
 
   const [weight, setWeight] = React.useState('');
   const [age, setAge] = React.useState('');
+  const [height, setHeight] = React.useState('');
   const [gender, setGender] = React.useState('');
 
   return (
@@ -123,10 +184,10 @@ export default function FiltersScreen() {
         />
 
         <View style={styles.field}>
-          <ThemedText style={styles.label}>Weight</ThemedText>
+          <ThemedText style={styles.label}>Weight (lbs)</ThemedText>
           <TextInput
             style={styles.input}
-            placeholder="Enter weight"
+            placeholder="Enter weight (lbs)"
             value={weight}
             onChangeText={setWeight}
             keyboardType="numeric"
@@ -134,10 +195,10 @@ export default function FiltersScreen() {
         </View>
 
         <View style={styles.field}>
-          <ThemedText style={styles.label}>Age</ThemedText>
+          <ThemedText style={styles.label}>Age (years)</ThemedText>
           <TextInput
             style={styles.input}
-            placeholder="Enter age"
+            placeholder="Enter age (years)"
             value={age}
             onChangeText={setAge}
             keyboardType="numeric"
@@ -145,15 +206,22 @@ export default function FiltersScreen() {
         </View>
 
         <View style={styles.field}>
-          <ThemedText style={styles.label}>Gender</ThemedText>
+          <ThemedText style={styles.label}>Height (inches)</ThemedText>
           <TextInput
             style={styles.input}
-            placeholder="Enter gender code"
-            value={gender}
-            onChangeText={setGender}
+            placeholder="Enter height (inches)"
+            value={height}
+            onChangeText={setHeight}
             keyboardType="numeric"
           />
         </View>
+
+        <SingleSelectDropdown
+          label="Gender"
+          options={["Male", "Female", "Other"]}
+          selected={gender}
+          setSelected={setGender}
+        />
 
         <MultiSelectDropdown
           label="Medical Restrictions"
@@ -170,7 +238,7 @@ export default function FiltersScreen() {
         />
 
         <MultiSelectDropdown
-          label="Religion"
+          label="Religion dietary restrictions"
           options={[
             'Common Islamic Dietary Law (Halal and Haram)',
             'Common Jewish Dietary Law (Kosher)',
