@@ -65,8 +65,10 @@ function WebCamera({
             facingMode: 'environment',
             width: { ideal: 1280 },
             height: { ideal: 720 },
-            // Improve image quality for glare and poor lighting
+            // Enable continuous autofocus for instant focusing
             focusMode: 'continuous' as any,
+            // Support macro focus (close distance) - crucial for scanning barcodes up close
+            focusDistance: { ideal: 0.05, min: 0 } as any,
             zoom: 1,
             // Request best framerate for smooth scanning
             frameRate: { ideal: 30 }
@@ -696,11 +698,12 @@ const styles = StyleSheet.create({
   },
   webHelpText: {
     position: 'absolute',
-    top: 20,
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 10,
-    borderRadius: 8,
+    top: 5,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    padding: 8,
+    borderRadius: 6,
+    zIndex: 1000,
   },
 });
