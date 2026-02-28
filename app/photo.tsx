@@ -15,21 +15,19 @@ function WebCamera({
   isEnabled: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [manualBarcode, setManualBarcode] = React.useState('');
   const [isScanning, setIsScanning] = React.useState(false);
   const detectedRef = useRef(false);
   const codeReaderRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!isEnabled) {
       // Stop scanner when disabled
-      if (codeReaderRef.current) {
-        try {
-          codeReaderRef.current.stopContinuousDecode();
-        } catch (e) {
-          console.log('Stop decode error:', e);
-        }
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
       }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -39,56 +37,85 @@ function WebCamera({
       return;
     }
 
-    // Start ZXing barcode scanner
+    // Start barcode scanner with canvas frame capture
     const startScanner = async () => {
       try {
-        console.log('Starting ZXing barcode scanner...');
+        console.log('Starting barcode scanner with canvas capture...');
         const { BrowserMultiFormatReader } = await import('@zxing/browser');
         
         // Wait for video element to be ready
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        if (!videoRef.current) {
-          console.error('Video element not found');
+        if (!videoRef.current || !canvasRef.current) {
+          console.error('Video or canvas element not found');
           return;
         }
 
-        codeReaderRef.current = new BrowserMultiFormatReader();
-        
+        // Get camera stream
         console.log('Getting camera stream...');
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
+          video: { 
+            facingMode: 'environment',
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          }
         });
         streamRef.current = stream;
         videoRef.current.srcObject = stream;
         
-        console.log('Starting continuous decode...');
-        codeReaderRef.current.decodeFromVideoElement(
-          videoRef.current,
-          (result: any, error: any) => {
-            if (result) {
-              if (detectedRef.current) return; // Prevent multiple detections
-              
-              const code = result.getText();
-              console.log('Barcode detected:', code);
-              
-              detectedRef.current = true;
-              onBarcodeScanned({
-                type: result.getBarcodeFormat()?.toString() || 'unknown',
-                data: code
-              });
-              
-              // Reset detection flag after 2 seconds
-              setTimeout(() => {
-                detectedRef.current = false;
-              }, 2000);
+        // Wait for video to load
+        await new Promise(resolve => {
+          videoRef.current?.addEventListener('loadedmetadata', resolve, { once: true });
+        });
+        
+        console.log('Creating code reader...');
+        codeReaderRef.current = new BrowserMultiFormatReader();
+        
+        console.log('Starting frame capture loop...');
+        setIsScanning(true);
+        
+        // Capture frames periodically and scan them
+        scanIntervalRef.current = setInterval(async () => {
+          if (!videoRef.current || !canvasRef.current || !codeReaderRef.current) return;
+          
+          try {
+            const ctx = canvasRef.current.getContext('2d');
+            if (!ctx) return;
+            
+            // Set canvas size to match video
+            canvasRef.current.width = videoRef.current.videoWidth;
+            canvasRef.current.height = videoRef.current.videoHeight;
+            
+            // Draw video frame to canvas
+            ctx.drawImage(videoRef.current, 0, 0);
+            
+            // Try to decode from canvas
+            try {
+              const result = await codeReaderRef.current.decodeFromCanvas(canvasRef.current);
+              if (result && !detectedRef.current) {
+                const code = result.getText();
+                console.log('Barcode detected:', code);
+                
+                detectedRef.current = true;
+                onBarcodeScanned({
+                  type: result.getBarcodeFormat()?.toString() || 'unknown',
+                  data: code
+                });
+                
+                // Reset detection flag after 2 seconds
+                setTimeout(() => {
+                  detectedRef.current = false;
+                }, 2000);
+              }
+            } catch (e) {
+              // No barcode in this frame, continue scanning
             }
-            // Errors are normal when no barcode is in view
+          } catch (err) {
+            console.error('Frame capture error:', err);
           }
-        );
+        }, 300); // Scan every 300ms
         
         console.log('Scanner started successfully!');
-        setIsScanning(true);
         
       } catch (error: any) {
         console.error('Error starting scanner:', error);
@@ -98,12 +125,8 @@ function WebCamera({
     startScanner();
 
     return () => {
-      if (codeReaderRef.current) {
-        try {
-          codeReaderRef.current.stopContinuousDecode();
-        } catch (e) {
-          console.log('Cleanup stop error:', e);
-        }
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
       }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -133,6 +156,9 @@ function WebCamera({
     <View style={{ width: '100%', height: '100%', position: 'relative' }}>
       <video 
         ref={videoRef as any}
+        autoPlay
+        playsInline
+        muted
         style={{
           width: '100%',
           height: '100%',
@@ -140,6 +166,12 @@ function WebCamera({
           borderRadius: 12,
           backgroundColor: '#000'
         }}
+      />
+      
+      {/* Hidden canvas for barcode scanning */}
+      <canvas 
+        ref={canvasRef as any}
+        style={{ display: 'none' }}
       />
       
       {/* Manual barcode input overlay */}
