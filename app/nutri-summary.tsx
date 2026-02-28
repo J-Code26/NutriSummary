@@ -269,12 +269,6 @@ export default function FiltersScreen() {
           setSelected={setReligions}
         />
 
-        <View style={styles.startButtonContainer}>
-          <TouchableOpacity style={styles.startButton} onPress={() => {/* placeholder */}}>
-            <ThemedText style={styles.startButtonText}>Start</ThemedText>
-          </TouchableOpacity>
-        </View>
-
       </ScrollView>
     </ThemedView>
   );
@@ -332,19 +326,5 @@ const styles = StyleSheet.create({
     marginTop: 10,
     alignSelf: 'flex-end',
     padding: 10,
-  },
-  startButtonContainer: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  startButton: {
-    backgroundColor: '#007aff',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 5,
-  },
-  startButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
   },
 });
