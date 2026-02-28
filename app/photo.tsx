@@ -45,7 +45,7 @@ function WebCamera({
         console.log(msg);
         setDebugInfo(msg);
         
-        const { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } = await import('@zxing/browser');
+        const { BrowserMultiFormatReader } = await import('@zxing/browser');
         setDebugInfo('ZXing imported successfully');
         
         // Wait for video element to be ready
@@ -74,29 +74,20 @@ function WebCamera({
         streamRef.current = stream;
         videoRef.current.srcObject = stream;
         
-        // Try to enable macro mode for close-range focusing
+        // Optimize video track for better focus and image quality
         try {
           const videoTrack = stream.getVideoTracks()[0];
-          if (videoTrack && videoTrack.getCapabilities) {
-            const capabilities = videoTrack.getCapabilities() as any;
-            if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
-              await videoTrack.applyConstraints({
-                advanced: [
-                  { focusMode: 'continuous' as any }
-                ] as any
-              });
-            }
-            // Enable manual focus if available
-            if (capabilities.focusDistance) {
-              await videoTrack.applyConstraints({
-                advanced: [
-                  { focusDistance: 0 } // 0 = closest focus
-                ] as any
-              });
-            }
+          if (videoTrack && videoTrack.applyConstraints) {
+            // Enable continuous autofocus (most compatible)
+            await videoTrack.applyConstraints({
+              advanced: [
+                { focusMode: 'continuous' } as any
+              ]
+            } as any);
           }
         } catch (e) {
-          console.log('Auto-focus enhancement not fully supported on this device');
+          // Continue if constraints not supported - camera will use defaults
+          console.log('Video constraints not fully supported on this device');
         }
         
         setDebugInfo('Camera stream obtained');
@@ -114,27 +105,8 @@ function WebCamera({
           }, { once: true });
         });
         
-        setDebugInfo('Creating ZXing scanner with enhanced hints...');
+        setDebugInfo('Creating ZXing scanner...');
         codeReaderRef.current = new BrowserMultiFormatReader();
-        
-        // Configure scanner hints for maximum detection capability
-        // TRY_HARDER: Spend more time decoding, especially useful for rotated/glared barcodes
-        // POSSIBLE_FORMATS: Support all common barcode types including sideways
-        const hints = new Map();
-        hints.set(DecodeHintType.TRY_HARDER, true);
-        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-          BarcodeFormat.EAN_13,
-          BarcodeFormat.EAN_8,
-          BarcodeFormat.UPC_A,
-          BarcodeFormat.UPC_E,
-          BarcodeFormat.CODE_128,
-          BarcodeFormat.CODE_39,
-          BarcodeFormat.QR_CODE,
-          BarcodeFormat.CODABAR,
-          BarcodeFormat.ITF // Interleaved 2 of 5 for warehouse barcodes
-        ]);
-        
-        codeReaderRef.current.setHints(hints);
         
         setIsScanning(true);
         frameCountRef.current = 0;
@@ -221,6 +193,14 @@ function WebCamera({
 
   return (
     <View style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+      {/* Debug header bar - FIRST so it's at absolute top */}
+      <View style={styles.webHelpText}>
+        <ThemedText style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
+          {debugInfo}
+        </ThemedText>
+      </View>
+
+      {/* Video element */}
       <video 
         ref={videoRef as any}
         autoPlay
@@ -234,10 +214,7 @@ function WebCamera({
           backgroundColor: '#000',
           // Enhance contrast for better barcode detection in glare/poor lighting
           filter: 'contrast(1.1) brightness(1.05)',
-          WebkitFilter: 'contrast(1.1) brightness(1.05)',
-          position: 'absolute',
-          top: 0,
-          left: 0
+          WebkitFilter: 'contrast(1.1) brightness(1.05)'
         } as any}
       />
       
@@ -257,13 +234,10 @@ function WebCamera({
         </TouchableOpacity>
       </View>
 
-      {/* Debug info and status - rendered last so it appears on top */}
-      <View style={styles.webHelpText}>
-        <ThemedText style={{ color: '#fff', fontSize: 12, textAlign: 'center', marginBottom: 4 }}>
-          {debugInfo}
-        </ThemedText>
+      {/* Status indicator only */}
+      <View style={{ position: 'absolute', bottom: 80, left: 20, right: 20, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 6 }}>
         <ThemedText style={{ color: '#fff', fontSize: 10, textAlign: 'center' }}>
-          {isScanning ? '🔍 Scanning...' : 'Starting...'}
+          {isScanning ? '🔍 Scanning - Point barcode at camera' : '📷 Initializing camera...'}
         </ThemedText>
       </View>
     </View>
