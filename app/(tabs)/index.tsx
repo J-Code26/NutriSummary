@@ -1,10 +1,11 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { TouchableOpacity } from 'react-native';
+import { TouchableOpacity, Image, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { StyleSheet } from 'react-native';
+
+const logo = require('@/assets/images/nutri-logo.png');
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -15,7 +16,7 @@ export default function HomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText type="title" style={styles.title}>NutriSummary</ThemedText>
+      <Image source={logo} style={styles.logo} />
       <TouchableOpacity style={styles.startButton} onPress={handleStart}>
         <ThemedText style={styles.startButtonText}>Start</ThemedText>
       </TouchableOpacity>
@@ -29,9 +30,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: {
+  logo: {
+    width: 200,
+    height: 200,
     marginBottom: 20,
-    textAlign: 'center',
   },
   startButton: {
     backgroundColor: '#007aff',
