@@ -67,15 +67,38 @@ function WebCamera({
             height: { ideal: 720 },
             // Enable continuous autofocus for instant focusing
             focusMode: 'continuous' as any,
-            // Support macro focus (close distance) - crucial for scanning barcodes up close
-            focusDistance: { ideal: 0.05, min: 0 } as any,
-            zoom: 1,
             // Request best framerate for smooth scanning
             frameRate: { ideal: 30 }
           }
         });
         streamRef.current = stream;
         videoRef.current.srcObject = stream;
+        
+        // Try to enable macro mode for close-range focusing
+        try {
+          const videoTrack = stream.getVideoTracks()[0];
+          if (videoTrack && videoTrack.getCapabilities) {
+            const capabilities = videoTrack.getCapabilities() as any;
+            if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+              await videoTrack.applyConstraints({
+                advanced: [
+                  { focusMode: 'continuous' as any }
+                ] as any
+              });
+            }
+            // Enable manual focus if available
+            if (capabilities.focusDistance) {
+              await videoTrack.applyConstraints({
+                advanced: [
+                  { focusDistance: 0 } // 0 = closest focus
+                ] as any
+              });
+            }
+          }
+        } catch (e) {
+          console.log('Auto-focus enhancement not fully supported on this device');
+        }
+        
         setDebugInfo('Camera stream obtained');
         
         // Wait for video to load
@@ -197,7 +220,7 @@ function WebCamera({
   }
 
   return (
-    <View style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <View style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
       <video 
         ref={videoRef as any}
         autoPlay
@@ -211,7 +234,10 @@ function WebCamera({
           backgroundColor: '#000',
           // Enhance contrast for better barcode detection in glare/poor lighting
           filter: 'contrast(1.1) brightness(1.05)',
-          WebkitFilter: 'contrast(1.1) brightness(1.05)'
+          WebkitFilter: 'contrast(1.1) brightness(1.05)',
+          position: 'absolute',
+          top: 0,
+          left: 0
         } as any}
       />
       
@@ -231,7 +257,7 @@ function WebCamera({
         </TouchableOpacity>
       </View>
 
-      {/* Debug info and status */}
+      {/* Debug info and status - rendered last so it appears on top */}
       <View style={styles.webHelpText}>
         <ThemedText style={{ color: '#fff', fontSize: 12, textAlign: 'center', marginBottom: 4 }}>
           {debugInfo}
@@ -698,12 +724,12 @@ const styles = StyleSheet.create({
   },
   webHelpText: {
     position: 'absolute',
-    top: 5,
-    left: 10,
-    right: 10,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    padding: 8,
-    borderRadius: 6,
-    zIndex: 1000,
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    padding: 12,
+    borderRadius: 0,
+    zIndex: 999999,
   },
 });
