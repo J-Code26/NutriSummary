@@ -14,92 +14,61 @@ function WebCamera({
   onBarcodeScanned: (data: { type: string; data: string }) => void;
   isEnabled: boolean;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [stream, setStream] = React.useState<MediaStream | null>(null);
+  const scannerRef = useRef<any>(null);
+  const [hasStarted, setHasStarted] = React.useState(false);
+  const scannerIdRef = useRef('barcode-scanner-' + Math.random().toString(36).substr(2, 9));
 
   useEffect(() => {
     if (!isEnabled) {
-      // Stop camera when disabled
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        setStream(null);
-      }
-      if (scanIntervalRef.current) {
-        clearInterval(scanIntervalRef.current);
-        scanIntervalRef.current = null;
+      // Stop scanner when disabled
+      if (scannerRef.current && hasStarted) {
+        scannerRef.current.stop().catch((err: any) => console.log('Stop error', err));
+        setHasStarted(false);
       }
       return;
     }
 
     // Start camera for web
-    const startCamera = async () => {
+    const startScanner = async () => {
       try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
+        // Dynamically import html5-qrcode for web only
+        const { Html5Qrcode } = await import('html5-qrcode');
         
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-          setStream(mediaStream);
-          
-          // Start scanning
-          videoRef.current.addEventListener('loadedmetadata', () => {
-            startScanning();
-          });
+        if (!scannerRef.current) {
+          scannerRef.current = new Html5Qrcode(scannerIdRef.current);
         }
+
+        const config = {
+          fps: 10,
+          qrbox: { width: 250, height: 150 }
+        };
+
+        await scannerRef.current.start(
+          { facingMode: 'environment' },
+          config,
+          (decodedText: string, decodedResult: any) => {
+            console.log('Web barcode detected:', decodedText);
+            onBarcodeScanned({
+              type: decodedResult.result?.format?.formatName || 'unknown',
+              data: decodedText
+            });
+          },
+          (errorMessage: string) => {
+            // Scanning errors are normal when no barcode is in view
+          }
+        );
+        
+        setHasStarted(true);
       } catch (error) {
-        console.error('Error accessing camera:', error);
+        console.error('Error starting scanner:', error);
       }
     };
 
-    const startScanning = async () => {
-      // Dynamically import ZXing for web only
-      const { BrowserMultiFormatReader } = await import('@zxing/library');
-      const codeReader = new BrowserMultiFormatReader();
-
-      scanIntervalRef.current = setInterval(async () => {
-        if (videoRef.current && canvasRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
-          const canvas = canvasRef.current;
-          const video = videoRef.current;
-          
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(video, 0, 0);
-            
-            try {
-              const result = await codeReader.decodeFromCanvas(canvas);
-              if (result) {
-                console.log('Web barcode detected:', result.getText());
-                onBarcodeScanned({
-                  type: result.getBarcodeFormat().toString(),
-                  data: result.getText()
-                });
-                // Stop scanning briefly after detection
-                if (scanIntervalRef.current) {
-                  clearInterval(scanIntervalRef.current);
-                }
-              }
-            } catch (err) {
-              // No barcode found in this frame, continue scanning
-            }
-          }
-        }
-      }, 300); // Scan every 300ms
-    };
-
-    startCamera();
+    startScanner();
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      if (scanIntervalRef.current) {
-        clearInterval(scanIntervalRef.current);
+      if (scannerRef.current && hasStarted) {
+        scannerRef.current.stop().catch((err: any) => console.log('Cleanup stop error', err));
       }
     };
   }, [isEnabled, onBarcodeScanned]);
@@ -114,19 +83,15 @@ function WebCamera({
 
   return (
     <View style={styles.cameraBox}>
-      <video
-        ref={videoRef as any}
-        autoPlay
-        playsInline
-        muted
+      <div 
+        id={scannerIdRef.current}
         style={{
           width: '100%',
           height: '100%',
-          objectFit: 'cover',
           borderRadius: 12,
+          overflow: 'hidden'
         }}
       />
-      <canvas ref={canvasRef as any} style={{ display: 'none' }} />
     </View>
   );
 }
