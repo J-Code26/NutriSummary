@@ -1,7 +1,8 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -24,6 +25,8 @@ function WebCamera({
   const scanIntervalRef = useRef<any>(null);
   const frameCountRef = useRef(0);
 
+  const [refreshKey, setRefreshKey] = React.useState(0);
+
   useEffect(() => {
     if (!isEnabled) {
       // Stop scanner when disabled
@@ -31,7 +34,13 @@ function WebCamera({
         clearInterval(scanIntervalRef.current);
       }
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach(track => {
+          try {
+            track.stop();
+          } catch (e) {
+            console.warn('Error stopping track during cleanup:', e);
+          }
+        });
         streamRef.current = null;
       }
       setIsScanning(false);
@@ -65,12 +74,7 @@ function WebCamera({
             facingMode: 'environment',
             width: { ideal: 1280 },
             height: { ideal: 720 },
-            frameRate: { ideal: 30 },
-            // Use advanced constraints for focus (must be in advanced array for browser compatibility)
-            advanced: [
-              { focusMode: 'continuous' } as any,
-              { focusDistance: 0 } as any
-            ] as any
+            frameRate: { ideal: 30 }
           }
         });
         streamRef.current = stream;
@@ -92,7 +96,7 @@ function WebCamera({
         });
         
         // Additional wait to let video stabilize and focus
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1500));
         
         setDebugInfo('Optimizing focus...');
         
@@ -100,32 +104,90 @@ function WebCamera({
         try {
           const videoTrack = streamRef.current?.getVideoTracks()[0];
           if (videoTrack && videoTrack.applyConstraints) {
-            await videoTrack.applyConstraints({
-              advanced: [
-                { focusMode: 'continuous' } as any,
-                { focusDistance: 0 } as any,
-                { torch: false } as any // Disable flash if it was on
-              ]
-            } as any);
+            const capabilities = (videoTrack as any).getCapabilities?.() || {};
+            const constraints: any = { advanced: [] };
+            
+            // Log capabilities for debugging
+            console.log('Camera capabilities:', capabilities);
+            
+            if (capabilities.focusMode?.includes('continuous')) {
+              constraints.advanced.push({ focusMode: 'continuous' });
+            } else if (capabilities.focusMode?.includes('macro')) {
+              constraints.advanced.push({ focusMode: 'macro' });
+            }
+            
+            if (capabilities.zoom) {
+              // Slight zoom can help with small barcodes
+              const minZoom = capabilities.zoom.min || 1;
+              const maxZoom = capabilities.zoom.max || 1;
+              if (maxZoom > 1.2) {
+                constraints.advanced.push({ zoom: 1.2 });
+              }
+            }
+            
+            if (capabilities.focusDistance) {
+              // Try to set for close-up if available, usually 0 is closest
+              constraints.advanced.push({ focusDistance: 0 });
+            }
+            
+            if (constraints.advanced.length > 0) {
+              await videoTrack.applyConstraints(constraints);
+            }
           }
         } catch (e) {
           console.log('Could not apply focus constraints:', e);
         }
         
         setDebugInfo('Creating ZXing scanner...');
-        codeReaderRef.current = new BrowserMultiFormatReader();
+        const { DecodeHintType, BarcodeFormat } = await import('@zxing/library');
         
+        // Define hints for multi-format reader to be more robust
+        const hints = new Map();
+        const formats = [
+          BarcodeFormat.AZTEC,
+          BarcodeFormat.CODABAR,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.CODE_93,
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.DATA_MATRIX,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.ITF,
+          BarcodeFormat.MAXICODE,
+          BarcodeFormat.PDF_417,
+          BarcodeFormat.QR_CODE,
+          BarcodeFormat.RSS_14,
+          BarcodeFormat.RSS_EXPANDED,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
+          BarcodeFormat.UPC_EAN_EXTENSION
+        ];
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+        hints.set(DecodeHintType.TRY_HARDER, true);
+        
+        codeReaderRef.current = new BrowserMultiFormatReader(hints);
+        
+        detectedRef.current = false;
         setIsScanning(true);
         frameCountRef.current = 0;
         
         // Use continuous decode with callback for instant scanning
         // This is the proper API for real-time barcode scanning
-        const decodePromise = codeReaderRef.current.decodeFromVideoElement(
+    const decodePromise = codeReaderRef.current.decodeFromVideoElement(
           videoRef.current,
           (result, error) => {
             if (result) {
-              frameCountRef.current++;
               const code = result.getText();
+              
+              // VALIDATION: Only accept codes that look like valid barcodes (numbers, mostly)
+              // This prevents random noise being interpreted as short barcodes
+              const isNumeric = /^\d+$/.test(code);
+              if (code.length < 5 && !isNumeric) {
+                console.log('Filtered out potential noise:', code);
+                return;
+              }
+
+              frameCountRef.current++;
               const format = result.getBarcodeFormat()?.toString() || 'unknown';
               console.log('✅ Barcode detected:', code, 'Format:', format);
               setDebugInfo(`Barcode found: ${code}`);
@@ -136,17 +198,9 @@ function WebCamera({
                   type: format,
                   data: code
                 });
-                
-                // Short 1.5 second cooldown to allow picking up another barcode quickly
-                setTimeout(() => {
-                  detectedRef.current = false;
-                  setDebugInfo('Ready for next barcode');
-                }, 1500);
+                // Pause further detections until the parent re-enables scanning
+                setIsScanning(false);
               }
-            }
-            
-            if (frameCountRef.current % 0 === 0 && frameCountRef.current > 0) {
-              // Only update status occasionally to reduce re-renders
             }
           }
         );
@@ -175,10 +229,16 @@ function WebCamera({
         }
       }
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach(track => {
+          try {
+            track.stop();
+          } catch (e) {
+            console.warn('Error stopping track in cleanup effect:', e);
+          }
+        });
       }
     };
-  }, [isEnabled, onBarcodeScanned]);
+  }, [isEnabled, onBarcodeScanned, refreshKey]);
 
   const handleManualSubmit = () => {
     if (manualBarcode.trim()) {
@@ -195,11 +255,12 @@ function WebCamera({
     if (streamRef.current) {
       const videoTrack = streamRef.current.getVideoTracks()[0];
       if (videoTrack && videoTrack.applyConstraints) {
-        videoTrack.applyConstraints({
-          advanced: [
-            { focusMode: 'continuous' } as any
-          ]
-        } as any).catch(err => console.log('Focus tap failed:', err));
+        const capabilities = (videoTrack as any).getCapabilities?.() || {};
+        if (capabilities.focusMode?.includes('continuous')) {
+          videoTrack.applyConstraints({
+            advanced: [{ focusMode: 'continuous' }]
+          } as any).catch(err => console.log('Focus tap failed:', err));
+        }
       }
     }
   };
@@ -214,44 +275,48 @@ function WebCamera({
 
   return (
     <View style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-      {/* Debug header bar - FIRST so it's at absolute top */}
-      <View style={styles.webHelpText}>
-        <ThemedText style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
-          {debugInfo}
-        </ThemedText>
-      </View>
+      {/* Debug header bar - only shown when needed */}
+      {debugInfo.includes('error') && (
+        <View style={styles.webHelpText}>
+          <ThemedText style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
+            {debugInfo}
+          </ThemedText>
+        </View>
+      )}
 
       {/* Video element with tap-to-focus */}
       <View 
-        onClick={handleVideoTap}
+        {...({ onClick: handleVideoTap } as any)}
         style={{ 
           width: '100%', 
           height: '100%', 
           cursor: 'pointer',
           position: 'absolute',
           top: 0,
-          left: 0
+          left: 0,
+          zIndex: 1
         } as any}
       >
         <video 
           ref={videoRef as any}
           autoPlay
           muted
+          playsInline
           style={{
             width: '100%',
             height: '100%',
             objectFit: 'cover',
             borderRadius: 12,
             backgroundColor: '#000',
-            // Enhance contrast for better barcode detection in glare/poor lighting
-            filter: 'contrast(1.2) brightness(1.1) saturate(1.1)',
-            WebkitFilter: 'contrast(1.2) brightness(1.1) saturate(1.1)'
+            // Slightly reduced filters to avoid phantom detections from noise
+            filter: 'contrast(1.1) brightness(1.05)',
+            WebkitFilter: 'contrast(1.1) brightness(1.05)'
           } as any}
         />
       </View>
       
-      {/* Manual barcode input overlay */}
-      <View style={styles.manualInputContainer}>
+      {/* Manual barcode input overlay - Higher zIndex */}
+      <View style={[styles.manualInputContainer, { zIndex: 10 }]}>
         <TextInput
           style={styles.manualInput}
           placeholder="Or enter barcode manually"
@@ -266,11 +331,18 @@ function WebCamera({
         </TouchableOpacity>
       </View>
 
-      {/* Status indicator only */}
-      <View style={{ position: 'absolute', bottom: 80, left: 20, right: 20, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 6 }}>
-        <ThemedText style={{ color: '#fff', fontSize: 10, textAlign: 'center' }}>
-          {isScanning ? '🔍 Scanning | Tap camera to focus' : '📷 Initializing camera...'}
-        </ThemedText>
+      <View style={{ position: 'absolute', bottom: 80, left: 20, right: 20, gap: 10, zIndex: 5 }}>
+        <View style={{ backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 6 }}>
+          <ThemedText style={{ color: '#fff', fontSize: 10, textAlign: 'center' }}>
+            {isScanning ? '🔍 Scanning | Tap camera to focus' : '📷 Camera active'}
+          </ThemedText>
+        </View>
+        <TouchableOpacity 
+          onPress={() => setRefreshKey(prev => prev + 1)}
+          style={{ backgroundColor: 'rgba(46, 125, 50, 0.8)', padding: 8, borderRadius: 6, alignSelf: 'center' }}
+        >
+          <ThemedText style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>🔄 Reset Camera</ThemedText>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -282,6 +354,7 @@ export default function PhotoScreen() {
   const [cameraEnabled, setCameraEnabled] = React.useState(true);
   const [scannedData, setScannedData] = React.useState<string | null>(null);
   const [productName, setProductName] = React.useState<string | null>(null);
+  const [aiSummary, setAiSummary] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isScanning, setIsScanning] = React.useState(false);
   const scanningRef = useRef(false);
@@ -291,36 +364,157 @@ export default function PhotoScreen() {
     scanningRef.current = true;
     setIsScanning(true);
     setIsLoading(true);
+    setAiSummary(null);
     
     try {
+      console.log(`🔍 Starting product lookup for barcode: ${barcode}`);
+      // 1. Fetch from Open Food Facts
       const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
+      
+      if (!response.ok) {
+        throw new Error(`Open Food Facts API error: ${response.status} ${response.statusText}`);
+      }
+      
       const data = await response.json();
+      console.log('Open Food Facts response received');
       
       if (data.status === 1 && data.product) {
-        const name = data.product.product_name || 'Unknown Product';
+        const product = data.product;
+        const name = product.product_name || 'Unknown Product';
         setProductName(name);
         setScannedData(barcode);
+
+        // 2. Read User Filters
+        let userFilters = "No specific filters set.";
+        try {
+          if (Platform.OS === 'web') {
+            if (typeof localStorage !== 'undefined') {
+              const savedData = localStorage.getItem('nutri-filters');
+              if (savedData) {
+                const parsedFilters = JSON.parse(savedData);
+                userFilters = JSON.stringify(parsedFilters, null, 2);
+              }
+            }
+          } else {
+            const fileUri = FileSystem.documentDirectory ? FileSystem.documentDirectory + 'filters.txt' : null;
+            if (fileUri) {
+              const exists = await FileSystem.getInfoAsync(fileUri);
+              if (exists.exists) {
+                const filtersContent = await FileSystem.readAsStringAsync(fileUri);
+                if (filtersContent) {
+                  const parsedFilters = JSON.parse(filtersContent);
+                  userFilters = JSON.stringify(parsedFilters, null, 2);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.log('No filters found or failed to read filters', e);
+        }
+
+        // 3. Summarize with AI (Gemini or OpenAI)
+        try {
+          const geminiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+          const openaiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+
+          const prompt = `
+            Analyze this food product from Open Food Facts and summarize it based on the user's health filters.
+            
+            Product: ${JSON.stringify({
+              name: product.product_name,
+              ingredients: product.ingredients_text,
+              nutrition: product.nutriments,
+              labels: product.labels,
+              categories: product.categories
+            })}
+            
+            User Filters: ${userFilters}
+            
+            Instructions:
+            1. Check if the product matches the user's allergies, diets, or medical restrictions.
+            2. Provide a concise summary (2-3 sentences) on whether this product is suitable for the user.
+            3. Use bullet points for key warnings or benefits.
+            4. Be direct and helpful.
+          `;
+
+          if (geminiKey) {
+            // Free Gemini Integration (Google AI SDK approach via fetch to avoid extra dependency)
+            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+            const geminiResponse = await fetch(geminiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }]
+              })
+            });
+            const geminiData = await geminiResponse.json();
+            
+            if (geminiData.candidates && geminiData.candidates[0]?.content?.parts[0]?.text) {
+              setAiSummary(geminiData.candidates[0].content.parts[0].text);
+            } else if (geminiData.error) {
+              throw new Error(`Gemini Error: ${geminiData.error.message || 'Check API key'}`);
+            } else {
+              throw new Error('Gemini returned an empty response. Please check your API usage.');
+            }
+          } else if (openaiKey) {
+            // OpenAI Integration
+            const { default: OpenAI } = await import('openai');
+            const openai = new OpenAI({
+              apiKey: openaiKey,
+              dangerouslyAllowBrowser: true
+            });
+
+            const completion = await openai.chat.completions.create({
+              messages: [{ role: 'system', content: 'You are a helpful nutrition assistant.' }, { role: 'user', content: prompt }],
+              model: 'gpt-3.5-turbo',
+            });
+
+            setAiSummary(completion.choices[0].message.content);
+          } else {
+            setAiSummary("AI Summary Unavailable: Please add a Gemini API key to a `.env` file in the root directory (EXPO_PUBLIC_GEMINI_API_KEY=...) to enable health analysis.");
+          }
+        } catch (aiError: any) {
+          console.error('AI Error:', aiError);
+          setAiSummary(`Failed to generate AI summary: ${aiError.message || 'Check your API key and connection.'}`);
+        }
+
       } else {
+        console.warn(`Product not found for barcode: ${barcode}`);
         setProductName('Product not found in database');
         setScannedData(barcode);
       }
-    } catch (error) {
-      console.error('Error fetching product:', error);
-      setProductName('Error loading product info');
+    } catch (error: any) {
+      console.error(`Error fetching product for ${barcode}:`, error);
+      setProductName(`Error: ${error.message || 'Check connection'}`);
       setScannedData(barcode);
     } finally {
       setIsLoading(false);
-      setTimeout(() => {
+      // Ensure scanning is reset after a delay
+      const cleanupTimer = setTimeout(() => {
         setIsScanning(false);
         scanningRef.current = false;
-      }, 2000); // Wait 2 seconds before allowing another scan
+        console.log('Scanner ready for next scan');
+      }, 2500); // Wait 2.5 seconds before allowing another scan
+      
+      return () => clearTimeout(cleanupTimer);
     }
+  };
+
+  const handleClear = () => {
+    setScannedData(null);
+    setProductName(null);
+    setAiSummary(null);
+    setIsScanning(false);
+    scanningRef.current = false;
+    setIsLoading(false);
+    setCameraEnabled(true);
   };
 
   const handleBarcodeScanned = ({ type, data }: { type: string; data: string }) => {
     console.log('Barcode detected!', type, data);
     if (!scanningRef.current && cameraEnabled) {
       console.log('Processing barcode...');
+      setCameraEnabled(false);
       fetchProductInfo(data);
     } else {
       console.log('Scan blocked - cooldown active');
@@ -328,10 +522,16 @@ export default function PhotoScreen() {
   };
 
   useEffect(() => {
-    if (Platform.OS !== 'web' && !permission?.granted) {
-      requestPermission();
-    }
-  }, [permission, requestPermission]);
+    const checkPermissions = async () => {
+      if (Platform.OS !== 'web') {
+        const { status } = await requestPermission();
+        if (status !== 'granted') {
+          console.warn('Camera permission not granted:', status);
+        }
+      }
+    };
+    checkPermissions();
+  }, []);
 
   // Skip permission checks for web
   if (Platform.OS !== 'web') {
@@ -404,79 +604,87 @@ export default function PhotoScreen() {
 
       {/* Camera View */}
       <View style={styles.content}>
-        <View style={styles.cameraWrapper}>
-          {Platform.OS === 'web' ? (
-            // Web-specific camera
-            <>
-              <WebCamera 
-                onBarcodeScanned={handleBarcodeScanned}
-                isEnabled={cameraEnabled}
-              />
-              
-              {cameraEnabled && (
+        {!productName && (
+          <View style={styles.cameraWrapper}>
+            {Platform.OS === 'web' ? (
+              // Web-specific camera
+              <>
+                <WebCamera 
+                  onBarcodeScanned={handleBarcodeScanned}
+                  isEnabled={cameraEnabled && !scannedData}
+                />
+                
+                {cameraEnabled && (
+                  <>
+                    {/* Always show scanning frame */}
+                    <View style={styles.scanFrame} pointerEvents="none">
+                      <View style={styles.scanCorner} />
+                    </View>
+                    
+                    {/* Status indicator */}
+                    <View style={styles.statusBar} pointerEvents="none">
+                      <ThemedText style={styles.statusText}>
+                        {isScanning ? '📊 Processing...' : '📷 Point at barcode'}
+                      </ThemedText>
+                    </View>
+                  </>
+                )}
+              </>
+            ) : (
+              // Native mobile camera
+              cameraEnabled ? (
                 <>
+                  <CameraView
+                    style={styles.cameraBox}
+                    facing="back"
+                    barcodeScannerSettings={{
+                      barcodeTypes: [
+                        'aztec',
+                        'codabar',
+                        'code128',
+                        'code39',
+                        'code93',
+                        'datamatrix',
+                        'ean13',
+                        'ean8',
+                        'itf14',
+                        'pdf417',
+                        'qr',
+                        'upc_a',
+                        'upc_e',
+                      ],
+                    }}
+                    onBarcodeScanned={handleBarcodeScanned}
+                  />
+                  
                   {/* Always show scanning frame */}
-                  <View style={styles.scanFrame}>
+                  <View style={styles.scanFrame} pointerEvents="none">
                     <View style={styles.scanCorner} />
                   </View>
                   
                   {/* Status indicator */}
-                  <View style={styles.statusBar}>
+                  <View style={styles.statusBar} pointerEvents="none">
                     <ThemedText style={styles.statusText}>
                       {isScanning ? '📊 Processing...' : '📷 Point at barcode'}
                     </ThemedText>
                   </View>
                 </>
-              )}
-            </>
-          ) : (
-            // Native mobile camera
-            cameraEnabled ? (
-              <>
-                <CameraView
-                  style={styles.cameraBox}
-                  facing="back"
-                  barcodeScannerSettings={{
-                    barcodeTypes: [
-                      'ean13',
-                      'ean8',
-                      'upc_a',
-                      'upc_e',
-                      'code128',
-                      'code39',
-                      'qr',
-                    ],
-                  }}
-                  onBarcodeScanned={handleBarcodeScanned}
-                />
-                
-                {/* Always show scanning frame */}
-                <View style={styles.scanFrame}>
-                  <View style={styles.scanCorner} />
+              ) : (
+                <View style={[styles.cameraBox, styles.cameraOffBox]}>
+                  <ThemedText style={{ color: '#666' }}>Camera Off</ThemedText>
                 </View>
-                
-                {/* Status indicator */}
-                <View style={styles.statusBar}>
-                  <ThemedText style={styles.statusText}>
-                    {isScanning ? '📊 Processing...' : '📷 Point at barcode'}
-                  </ThemedText>
-                </View>
-              </>
-            ) : (
-              <View style={[styles.cameraBox, styles.cameraOffBox]}>
-                <ThemedText style={{ color: '#666' }}>Camera Off</ThemedText>
+              )
+            )}
+            
+            {/* Scanning Indicator */}
+            {isScanning && cameraEnabled && (
+              <View style={styles.scanningOverlay} pointerEvents="none">
+                <View style={styles.scanLine} />
+                <ThemedText style={styles.scanningText}>Scanning barcode...</ThemedText>
               </View>
-            )
-          )}
-          
-          {/* Scanning Indicator */}
-          {isScanning && cameraEnabled && (
-            <View style={styles.scanningOverlay}>
-              <View style={styles.scanLine} />
-              <ThemedText style={styles.scanningText}>Scanning barcode...</ThemedText>
-            </View>
-          )}
-        </View>
+            )}
+          </View>
+        )}
         
         {/* Product Info Display */}
         {isLoading && (
@@ -487,32 +695,51 @@ export default function PhotoScreen() {
         )}
         
         {!isLoading && productName && (
-          <View style={styles.scanResult}>
-            <ThemedText style={styles.scanResultTitle}>Product Found!</ThemedText>
-            <ThemedText style={styles.productName}>{productName}</ThemedText>
-            <ThemedText style={styles.barcodeText}>Barcode: {scannedData}</ThemedText>
-            <TouchableOpacity
-              style={styles.clearButton}
-              onPress={() => {
-                setScannedData(null);
-                setProductName(null);
-                setIsScanning(false);
-                scanningRef.current = false;
-              }}
-            >
-              <ThemedText style={styles.clearButtonText}>Scan Another</ThemedText>
-            </TouchableOpacity>
+          <View style={styles.scanResultContainer}>
+            <ScrollView style={styles.scanResult}>
+              <ThemedText style={styles.scanResultTitle}>Product Found!</ThemedText>
+              <ThemedText style={styles.productName}>{productName}</ThemedText>
+              
+              {aiSummary ? (
+                <View style={styles.summaryContainer}>
+                  <ThemedText style={styles.summaryTitle}>Health Summary:</ThemedText>
+                  <ThemedText style={styles.summaryText}>{aiSummary}</ThemedText>
+                </View>
+              ) : (
+                productName !== 'Product not found in database' && (
+                  <ActivityIndicator size="small" color="#2E7D32" style={{ marginVertical: 10 }} />
+                )
+              )}
+              
+              <ThemedText style={styles.barcodeText}>Barcode: {scannedData}</ThemedText>
+              <TouchableOpacity
+                style={styles.clearButton}
+                onPress={handleClear}
+              >
+                <ThemedText style={styles.clearButtonText}>Scan Another</ThemedText>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         )}
         
-        <TouchableOpacity
-          style={styles.toggleButton}
-          onPress={() => setCameraEnabled(!cameraEnabled)}
-        >
-          <ThemedText style={styles.toggleButtonText}>
-            {cameraEnabled ? 'Turn Off Camera' : 'Turn On Camera'}
-          </ThemedText>
-        </TouchableOpacity>
+        {!productName && (
+          <TouchableOpacity
+            style={styles.toggleButton}
+            onPress={() => {
+              if (cameraEnabled) {
+                setCameraEnabled(false);
+                // Force cleanup if turning off
+                handleClear();
+              } else {
+                setCameraEnabled(true);
+              }
+            }}
+          >
+            <ThemedText style={styles.toggleButtonText}>
+              {cameraEnabled ? 'Turn Off Camera' : 'Turn On Camera'}
+            </ThemedText>
+          </TouchableOpacity>
+        )}
       </View>
     </ThemedView>
   );
@@ -651,13 +878,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   scanResult: {
-    marginTop: 20,
     backgroundColor: '#fff',
     padding: 15,
     borderRadius: 8,
-    width: '90%',
+    width: '100%',
     borderWidth: 2,
     borderColor: '#2E7D32',
+  },
+  scanResultContainer: {
+    width: '90%',
+    height: '80%',
+    marginVertical: 20,
   },
   scanResultTitle: {
     color: '#2E7D32',
@@ -687,15 +918,35 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     backgroundColor: '#d32f2f',
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 5,
-    alignSelf: 'flex-start',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 15,
+    alignSelf: 'center',
   },
   clearButtonText: {
     color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  summaryContainer: {
+    backgroundColor: '#f1f8e9',
+    padding: 15,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2E7D32',
+    marginVertical: 10,
+  },
+  summaryTitle: {
+    color: '#1B5E20',
+    fontWeight: '700',
+    fontSize: 16,
+    marginBottom: 5,
+  },
+  summaryText: {
+    color: '#333',
+    fontSize: 15,
+    lineHeight: 22,
   },
   manualInputContainer: {
     position: 'absolute',

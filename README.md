@@ -10,7 +10,16 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Set up environment variables
+
+   - Create a `.env` file in the root directory (you can copy `.env.example`).
+   - Add your API keys:
+     ```bash
+     EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key
+     ```
+   - *Note: Get a free Gemini API key at [Google AI Studio](https://aistudio.google.com/).*
+
+3. Start the app
 
    ```bash
    npx expo start

@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { Modal, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -135,9 +135,6 @@ export default function FiltersScreen() {
   const [height, setHeight] = React.useState('');
   const [gender, setGender] = React.useState('');
 
-  // file we will write to within the app document directory
-  const fileUri = FileSystem.documentDirectory + 'filters.txt';
-
   // whenever any of the filters change, serialize and save to disk
   useEffect(() => {
     const data = {
@@ -151,10 +148,67 @@ export default function FiltersScreen() {
       gender,
     };
 
-    // omit encoding option to avoid issues on web (EncodingType may be undefined)
-    FileSystem.writeAsStringAsync(fileUri, JSON.stringify(data))
-      .catch((e) => console.warn('Failed to write filters file', e));
+    const json = JSON.stringify(data);
+
+    if (Platform.OS === 'web') {
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem('nutri-filters', json);
+        } catch (e) {
+          console.warn('Failed to save filters to localStorage', e);
+        }
+      }
+    } else {
+      // file we will write to within the app document directory
+      const fileUri = FileSystem.documentDirectory ? FileSystem.documentDirectory + 'filters.txt' : null;
+      if (fileUri) {
+        // omit encoding option to avoid issues on web (EncodingType may be undefined)
+        FileSystem.writeAsStringAsync(fileUri, json)
+          .catch((e) => console.warn('Failed to write filters file', e));
+      }
+    }
   }, [allergies, diets, medicalRestrictions, religions, weight, age, height, gender]);
+
+  // load filters on mount
+  useEffect(() => {
+    const loadFilters = async () => {
+      let savedData: string | null = null;
+      if (Platform.OS === 'web') {
+        if (typeof localStorage !== 'undefined') {
+          savedData = localStorage.getItem('nutri-filters');
+        }
+      } else {
+        const fileUri = FileSystem.documentDirectory ? FileSystem.documentDirectory + 'filters.txt' : null;
+        if (fileUri) {
+          try {
+            const exists = await FileSystem.getInfoAsync(fileUri);
+            if (exists.exists) {
+              savedData = await FileSystem.readAsStringAsync(fileUri);
+            }
+          } catch (e) {
+            console.warn('Failed to read filters file', e);
+          }
+        }
+      }
+
+      if (savedData) {
+        try {
+          const parsed = JSON.parse(savedData);
+          if (parsed.allergies) setAllergies(parsed.allergies);
+          if (parsed.diets) setDiets(parsed.diets);
+          if (parsed.medicalRestrictions) setMedicalRestrictions(parsed.medicalRestrictions);
+          if (parsed.religions) setReligions(parsed.religions);
+          if (parsed.weight) setWeight(parsed.weight);
+          if (parsed.age) setAge(parsed.age);
+          if (parsed.height) setHeight(parsed.height);
+          if (parsed.gender) setGender(parsed.gender);
+        } catch (e) {
+          console.warn('Failed to parse saved filters', e);
+        }
+      }
+    };
+    loadFilters();
+  }, []);
 
   return (
     <ThemedView style={styles.container} lightColor="#ade866" darkColor="#0A2F0A">
