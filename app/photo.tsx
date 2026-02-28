@@ -6,7 +6,7 @@ import { ActivityIndicator, Platform, StyleSheet, TextInput, TouchableOpacity, V
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
-// Web camera component with manual barcode input fallback
+// Web camera component with automatic barcode scanning
 function WebCamera({ 
   onBarcodeScanned, 
   isEnabled 
@@ -14,48 +14,104 @@ function WebCamera({
   onBarcodeScanned: (data: { type: string; data: string }) => void;
   isEnabled: boolean;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [stream, setStream] = React.useState<MediaStream | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [manualBarcode, setManualBarcode] = React.useState('');
-  const [showManualInput, setShowManualInput] = React.useState(false);
+  const [isScanning, setIsScanning] = React.useState(false);
+  const detectedRef = useRef(false);
 
   useEffect(() => {
     if (!isEnabled) {
-      // Stop camera when disabled
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        setStream(null);
+      // Stop scanner when disabled
+      const Quagga = require('quagga');
+      if (isScanning) {
+        Quagga.stop();
+        setIsScanning(false);
       }
       return;
     }
 
-    // Start basic camera for web
-    const startCamera = async () => {
+    // Start Quagga barcode scanner
+    const startScanner = async () => {
       try {
-        console.log('Starting web camera...');
-        const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
+        console.log('Starting Quagga barcode scanner...');
+        const Quagga = require('quagga');
+        
+        // Wait for container to be ready
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        if (!containerRef.current) {
+          console.error('Container not found');
+          return;
+        }
+
+        Quagga.init({
+          inputStream: {
+            type: 'LiveStream',
+            target: containerRef.current,
+            constraints: {
+              width: 640,
+              height: 480,
+              facingMode: 'environment'
+            }
+          },
+          decoder: {
+            readers: [
+              'ean_reader',
+              'ean_8_reader',
+              'code_128_reader',
+              'code_39_reader',
+              'upc_reader',
+              'upc_e_reader'
+            ]
+          },
+          locate: true,
+          locator: {
+            patchSize: 'medium',
+            halfSample: true
+          }
+        }, (err: any) => {
+          if (err) {
+            console.error('Quagga initialization error:', err);
+            return;
+          }
+          console.log('Quagga initialized successfully');
+          Quagga.start();
+          setIsScanning(true);
+        });
+
+        Quagga.onDetected((result: any) => {
+          if (detectedRef.current) return; // Prevent multiple detections
+          
+          const code = result.codeResult.code;
+          console.log('Barcode detected:', code);
+          
+          detectedRef.current = true;
+          onBarcodeScanned({
+            type: result.codeResult.format,
+            data: code
+          });
+          
+          // Reset detection flag after 2 seconds
+          setTimeout(() => {
+            detectedRef.current = false;
+          }, 2000);
         });
         
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-          setStream(mediaStream);
-          console.log('Camera started successfully!');
-        }
-      } catch (error: any) {
-        console.error('Error accessing camera:', error);
-        setShowManualInput(true);
+      } catch (error) {
+        console.error('Error starting scanner:', error);
       }
     };
 
-    startCamera();
+    startScanner();
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      const Quagga = require('quagga');
+      if (isScanning) {
+        Quagga.stop();
+        Quagga.offDetected();
       }
     };
-  }, [isEnabled]);
+  }, [isEnabled, onBarcodeScanned]);
 
   const handleManualSubmit = () => {
     if (manualBarcode.trim()) {
@@ -77,17 +133,14 @@ function WebCamera({
 
   return (
     <View style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <video
-        ref={videoRef as any}
-        autoPlay
-        playsInline
-        muted
+      <div 
+        ref={containerRef as any}
         style={{
           width: '100%',
           height: '100%',
-          objectFit: 'cover',
-          borderRadius: 12,
-          backgroundColor: '#000'
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: 12
         }}
       />
       
@@ -95,7 +148,7 @@ function WebCamera({
       <View style={styles.manualInputContainer}>
         <TextInput
           style={styles.manualInput}
-          placeholder="Enter barcode manually"
+          placeholder="Or enter barcode manually"
           placeholderTextColor="#999"
           value={manualBarcode}
           onChangeText={setManualBarcode}
@@ -109,7 +162,7 @@ function WebCamera({
       
       <View style={styles.webHelpText}>
         <ThemedText style={{ color: '#fff', fontSize: 12, textAlign: 'center' }}>
-          Camera preview active. Enter barcode number above to look up products.
+          {isScanning ? '📊 Scanning... Point at barcode' : '📷 Starting camera...'}
         </ThemedText>
       </View>
     </View>
