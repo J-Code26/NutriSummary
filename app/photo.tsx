@@ -19,14 +19,23 @@ function WebCamera({
   const [isScanning, setIsScanning] = React.useState(false);
   const detectedRef = useRef(false);
   const codeReaderRef = useRef<any>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     if (!isEnabled) {
       // Stop scanner when disabled
       if (codeReaderRef.current) {
-        codeReaderRef.current.reset();
-        setIsScanning(false);
+        try {
+          codeReaderRef.current.stopContinuousDecode();
+        } catch (e) {
+          console.log('Stop decode error:', e);
+        }
       }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      setIsScanning(false);
       return;
     }
 
@@ -37,7 +46,7 @@ function WebCamera({
         const { BrowserMultiFormatReader } = await import('@zxing/browser');
         
         // Wait for video element to be ready
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 300));
         
         if (!videoRef.current) {
           console.error('Video element not found');
@@ -46,9 +55,15 @@ function WebCamera({
 
         codeReaderRef.current = new BrowserMultiFormatReader();
         
-        console.log('Starting video stream...');
-        await codeReaderRef.current.decodeFromVideoDevice(
-          undefined, // Use default camera
+        console.log('Getting camera stream...');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        streamRef.current = stream;
+        videoRef.current.srcObject = stream;
+        
+        console.log('Starting continuous decode...');
+        codeReaderRef.current.decodeFromVideoElement(
           videoRef.current,
           (result: any, error: any) => {
             if (result) {
@@ -84,7 +99,14 @@ function WebCamera({
 
     return () => {
       if (codeReaderRef.current) {
-        codeReaderRef.current.reset();
+        try {
+          codeReaderRef.current.stopContinuousDecode();
+        } catch (e) {
+          console.log('Cleanup stop error:', e);
+        }
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
       }
     };
   }, [isEnabled, onBarcodeScanned]);
