@@ -170,30 +170,6 @@ function WebCamera({
         const scanCanvas = document.createElement('canvas');
         const scanCtx = scanCanvas.getContext('2d');
 
-        const { DecodeHintType, BarcodeFormat } = await import('@zxing/library');
-        const hints = new Map();
-        const formats = [
-          BarcodeFormat.AZTEC,
-          BarcodeFormat.CODABAR,
-          BarcodeFormat.CODE_39,
-          BarcodeFormat.CODE_93,
-          BarcodeFormat.CODE_128,
-          BarcodeFormat.DATA_MATRIX,
-          BarcodeFormat.EAN_8,
-          BarcodeFormat.EAN_13,
-          BarcodeFormat.ITF,
-          BarcodeFormat.MAXICODE,
-          BarcodeFormat.PDF_417,
-          BarcodeFormat.QR_CODE,
-          BarcodeFormat.RSS_14,
-          BarcodeFormat.RSS_EXPANDED,
-          BarcodeFormat.UPC_A,
-          BarcodeFormat.UPC_E,
-          BarcodeFormat.UPC_EAN_EXTENSION,
-        ];
-        hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-        hints.set(DecodeHintType.TRY_HARDER, true);
-
         codeReaderRef.current = new BrowserMultiFormatReader(hints);
         detectedRef.current = false;
         setIsScanning(true);
@@ -285,26 +261,6 @@ function WebCamera({
         scanIntervalRef.current = enhancedScanInterval as any;
         setDebugInfo('✓ Scanner ready - enhanced for vertical/angled barcodes');
         console.log('✅ Scanner started with edge enhancement and rotation support!');
-                detectedRef.current = true;
-                onBarcodeScanned({
-                  type: format,
-                  data: code
-                });
-                // Pause further detections until the parent re-enables scanning
-                setIsScanning(false);
-                              return;
-              }
-            } catch (e) {
-              // Continue to rotation attempt if normal scan fails
-            }
-          }
-        }, 200); // Faster scanning (200ms) for better vertical detection
-        
-        scanIntervalRef.current = enhancedScanInterval as any;
-        setDebugInfo('✓ Scanner ready - enhanced for vertical/angled barcodes');
-        console.log('✅ Scanner started with edge enhancement and rotation support!');
-        
-        
       } catch (error: any) {
         console.error('Error starting scanner:', error);
         setDebugInfo(`Scanner error: ${error.message}`);
