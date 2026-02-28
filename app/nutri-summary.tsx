@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Modal, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -137,6 +138,27 @@ export default function FiltersScreen() {
   const [age, setAge] = React.useState('');
   const [height, setHeight] = React.useState('');
   const [gender, setGender] = React.useState('');
+
+  // file we will write to within the app document directory
+  const fileUri = FileSystem.documentDirectory + 'filters.txt';
+
+  // whenever any of the filters change, serialize and save to disk
+  useEffect(() => {
+    const data = {
+      allergies,
+      diets,
+      medicalRestrictions,
+      religions,
+      weight,
+      age,
+      height,
+      gender,
+    };
+
+    FileSystem.writeAsStringAsync(fileUri, JSON.stringify(data), {
+      encoding: FileSystem.EncodingType.UTF8,
+    }).catch((e) => console.warn('Failed to write filters file', e));
+  }, [allergies, diets, medicalRestrictions, religions, weight, age, height, gender]);
 
   return (
     <ThemedView style={styles.container}>
