@@ -13,16 +13,11 @@ export default function HomeScreen() {
     router.push('/filters');
   };
 
-  // debug: log background variable
-  React.useEffect(() => {
-    console.log('background asset', background);
-  }, []);
+  // (debug removed)
 
   return (
     <ImageBackground source={background} style={styles.container} resizeMode="cover">
       <View style={styles.overlay}>
-        <ThemedText>Debug: Screen loaded</ThemedText>
-        <ThemedText>{JSON.stringify(background)}</ThemedText>
         <TouchableOpacity style={styles.startButton} onPress={handleStart}>
           <ThemedText style={styles.startButtonText}>Start</ThemedText>
         </TouchableOpacity>
@@ -42,9 +37,10 @@ const styles = StyleSheet.create({
   },
   overlay: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     width: '100%',
+    paddingBottom: 48,
   },
   startButton: {
     backgroundColor: '#007aff',
