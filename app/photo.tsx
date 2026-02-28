@@ -14,90 +14,68 @@ function WebCamera({
   onBarcodeScanned: (data: { type: string; data: string }) => void;
   isEnabled: boolean;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [manualBarcode, setManualBarcode] = React.useState('');
   const [isScanning, setIsScanning] = React.useState(false);
   const detectedRef = useRef(false);
+  const codeReaderRef = useRef<any>(null);
 
   useEffect(() => {
     if (!isEnabled) {
       // Stop scanner when disabled
-      const Quagga = require('quagga');
-      if (isScanning) {
-        Quagga.stop();
+      if (codeReaderRef.current) {
+        codeReaderRef.current.reset();
         setIsScanning(false);
       }
       return;
     }
 
-    // Start Quagga barcode scanner
+    // Start ZXing barcode scanner
     const startScanner = async () => {
       try {
-        console.log('Starting Quagga barcode scanner...');
-        const Quagga = require('quagga');
+        console.log('Starting ZXing barcode scanner...');
+        const { BrowserMultiFormatReader } = await import('@zxing/browser');
         
-        // Wait for container to be ready
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Wait for video element to be ready
+        await new Promise(resolve => setTimeout(resolve, 200));
         
-        if (!containerRef.current) {
-          console.error('Container not found');
+        if (!videoRef.current) {
+          console.error('Video element not found');
           return;
         }
 
-        Quagga.init({
-          inputStream: {
-            type: 'LiveStream',
-            target: containerRef.current,
-            constraints: {
-              width: 640,
-              height: 480,
-              facingMode: 'environment'
-            }
-          },
-          decoder: {
-            readers: [
-              'ean_reader',
-              'ean_8_reader',
-              'code_128_reader',
-              'code_39_reader',
-              'upc_reader',
-              'upc_e_reader'
-            ]
-          },
-          locate: true,
-          locator: {
-            patchSize: 'medium',
-            halfSample: true
-          }
-        }, (err: any) => {
-          if (err) {
-            console.error('Quagga initialization error:', err);
-            return;
-          }
-          console.log('Quagga initialized successfully');
-          Quagga.start();
-          setIsScanning(true);
-        });
-
-        Quagga.onDetected((result: any) => {
-          if (detectedRef.current) return; // Prevent multiple detections
-          
-          const code = result.codeResult.code;
-          console.log('Barcode detected:', code);
-          
-          detectedRef.current = true;
-          onBarcodeScanned({
-            type: result.codeResult.format,
-            data: code
-          });
-          
-          // Reset detection flag after 2 seconds
-          setTimeout(() => {
-            detectedRef.current = false;
-          }, 2000);
-        });
+        codeReaderRef.current = new BrowserMultiFormatReader();
         
-      } catch (error) {
+        console.log('Starting video stream...');
+        await codeReaderRef.current.decodeFromVideoDevice(
+          undefined, // Use default camera
+          videoRef.current,
+          (result: any, error: any) => {
+            if (result) {
+              if (detectedRef.current) return; // Prevent multiple detections
+              
+              const code = result.getText();
+              console.log('Barcode detected:', code);
+              
+              detectedRef.current = true;
+              onBarcodeScanned({
+                type: result.getBarcodeFormat()?.toString() || 'unknown',
+                data: code
+              });
+              
+              // Reset detection flag after 2 seconds
+              setTimeout(() => {
+                detectedRef.current = false;
+              }, 2000);
+            }
+            // Errors are normal when no barcode is in view
+          }
+        );
+        
+        console.log('Scanner started successfully!');
+        setIsScanning(true);
+        
+      } catch (error: any) {
         console.error('Error starting scanner:', error);
       }
     };
@@ -105,10 +83,8 @@ function WebCamera({
     startScanner();
 
     return () => {
-      const Quagga = require('quagga');
-      if (isScanning) {
-        Quagga.stop();
-        Quagga.offDetected();
+      if (codeReaderRef.current) {
+        codeReaderRef.current.reset();
       }
     };
   }, [isEnabled, onBarcodeScanned]);
@@ -133,14 +109,14 @@ function WebCamera({
 
   return (
     <View style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <div 
-        ref={containerRef as any}
+      <video 
+        ref={videoRef as any}
         style={{
           width: '100%',
           height: '100%',
-          position: 'relative',
-          overflow: 'hidden',
-          borderRadius: 12
+          objectFit: 'cover',
+          borderRadius: 12,
+          backgroundColor: '#000'
         }}
       />
       
