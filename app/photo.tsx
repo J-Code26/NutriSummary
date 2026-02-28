@@ -1,12 +1,12 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
-// Web camera component
+// Web camera component with manual barcode input fallback
 function WebCamera({ 
   onBarcodeScanned, 
   isEnabled 
@@ -14,82 +14,58 @@ function WebCamera({
   onBarcodeScanned: (data: { type: string; data: string }) => void;
   isEnabled: boolean;
 }) {
-  const scannerRef = useRef<any>(null);
-  const [hasStarted, setHasStarted] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const scannerIdRef = useRef('barcode-scanner-' + Math.random().toString(36).substr(2, 9));
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [stream, setStream] = React.useState<MediaStream | null>(null);
+  const [manualBarcode, setManualBarcode] = React.useState('');
+  const [showManualInput, setShowManualInput] = React.useState(false);
 
   useEffect(() => {
     if (!isEnabled) {
-      // Stop scanner when disabled
-      if (scannerRef.current && hasStarted) {
-        scannerRef.current.stop().catch((err: any) => console.log('Stop error', err));
-        setHasStarted(false);
+      // Stop camera when disabled
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        setStream(null);
       }
       return;
     }
 
-    // Start camera for web - add a delay to ensure DOM is ready
-    const startScanner = async () => {
+    // Start basic camera for web
+    const startCamera = async () => {
       try {
-        console.log('Starting web barcode scanner...');
-        setError(null);
+        console.log('Starting web camera...');
+        const mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
         
-        // Wait a bit for DOM to be ready
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        // Dynamically import html5-qrcode for web only
-        const { Html5Qrcode } = await import('html5-qrcode');
-        
-        const element = document.getElementById(scannerIdRef.current);
-        if (!element) {
-          console.error('Scanner element not found:', scannerIdRef.current);
-          setError('Scanner element not found');
-          return;
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          setStream(mediaStream);
+          console.log('Camera started successfully!');
         }
-        
-        console.log('Creating Html5Qrcode instance...');
-        if (!scannerRef.current) {
-          scannerRef.current = new Html5Qrcode(scannerIdRef.current);
-        }
-
-        const config = {
-          fps: 10,
-          qrbox: { width: 250, height: 150 }
-        };
-
-        console.log('Starting scanner...');
-        await scannerRef.current.start(
-          { facingMode: 'environment' },
-          config,
-          (decodedText: string, decodedResult: any) => {
-            console.log('Web barcode detected:', decodedText);
-            onBarcodeScanned({
-              type: decodedResult.result?.format?.formatName || 'unknown',
-              data: decodedText
-            });
-          },
-          (errorMessage: string) => {
-            // Scanning errors are normal when no barcode is in view
-          }
-        );
-        
-        console.log('Scanner started successfully!');
-        setHasStarted(true);
       } catch (error: any) {
-        console.error('Error starting scanner:', error);
-        setError(error?.message || 'Failed to start scanner');
+        console.error('Error accessing camera:', error);
+        setShowManualInput(true);
       }
     };
 
-    startScanner();
+    startCamera();
 
     return () => {
-      if (scannerRef.current && hasStarted) {
-        scannerRef.current.stop().catch((err: any) => console.log('Cleanup stop error', err));
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
       }
     };
-  }, [isEnabled, onBarcodeScanned]);
+  }, [isEnabled]);
+
+  const handleManualSubmit = () => {
+    if (manualBarcode.trim()) {
+      onBarcodeScanned({
+        type: 'manual',
+        data: manualBarcode.trim()
+      });
+      setManualBarcode('');
+    }
+  };
 
   if (!isEnabled) {
     return (
@@ -99,27 +75,43 @@ function WebCamera({
     );
   }
 
-  if (error) {
-    return (
-      <View style={[styles.cameraBox, styles.cameraOffBox]}>
-        <ThemedText style={{ color: '#d32f2f', textAlign: 'center', padding: 20 }}>
-          Error: {error}
-        </ThemedText>
-      </View>
-    );
-  }
-
-  // For web, we need to return the div in a way React Native Web can handle
   return (
     <View style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <div 
-        id={scannerIdRef.current}
+      <video
+        ref={videoRef as any}
+        autoPlay
+        playsInline
+        muted
         style={{
           width: '100%',
           height: '100%',
-          position: 'relative'
+          objectFit: 'cover',
+          borderRadius: 12,
+          backgroundColor: '#000'
         }}
       />
+      
+      {/* Manual barcode input overlay */}
+      <View style={styles.manualInputContainer}>
+        <TextInput
+          style={styles.manualInput}
+          placeholder="Enter barcode manually"
+          placeholderTextColor="#999"
+          value={manualBarcode}
+          onChangeText={setManualBarcode}
+          onSubmitEditing={handleManualSubmit}
+          returnKeyType="search"
+        />
+        <TouchableOpacity onPress={handleManualSubmit} style={styles.scanManualButton}>
+          <ThemedText style={styles.scanManualButtonText}>Scan</ThemedText>
+        </TouchableOpacity>
+      </View>
+      
+      <View style={styles.webHelpText}>
+        <ThemedText style={{ color: '#fff', fontSize: 12, textAlign: 'center' }}>
+          Camera preview active. Enter barcode number above to look up products.
+        </ThemedText>
+      </View>
     </View>
   );
 }
@@ -544,5 +536,45 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,
+  },
+  manualInputContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  manualInput: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    borderWidth: 2,
+    borderColor: '#2E7D32',
+    color: '#000',
+  },
+  scanManualButton: {
+    backgroundColor: '#2E7D32',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  scanManualButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  webHelpText: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 10,
+    borderRadius: 8,
   },
 });
