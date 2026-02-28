@@ -10,6 +10,13 @@ export default function PhotoScreen() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraEnabled, setCameraEnabled] = React.useState(true);
+  const [scannedData, setScannedData] = React.useState<string | null>(null);
+  const [scannedType, setScannedType] = React.useState<string | null>(null);
+
+  const handleBarcodeScanned = ({ type, data }: { type: string; data: string }) => {
+    setScannedData(data);
+    setScannedType(type);
+  };
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -86,10 +93,43 @@ export default function PhotoScreen() {
       {/* Camera View */}
       <View style={styles.content}>
         {cameraEnabled ? (
-          <CameraView style={styles.cameraBox} facing="back" />
+          <CameraView
+            style={styles.cameraBox}
+            facing="back"
+            barcodeScannerSettings={{
+              barcodeTypes: [
+                'ean13',
+                'ean8',
+                'upc_a',
+                'upc_e',
+                'code128',
+                'code39',
+                'qr',
+              ],
+            }}
+            onBarcodeScanned={handleBarcodeScanned}
+          />
         ) : (
           <View style={[styles.cameraBox, styles.cameraOffBox]} />
         )}
+        
+        {scannedData && (
+          <View style={styles.scanResult}>
+            <ThemedText style={styles.scanResultTitle}>Scanned Item:</ThemedText>
+            <ThemedText style={styles.scanResultData}>{scannedData}</ThemedText>
+            <ThemedText style={styles.scanResultType}>Type: {scannedType}</ThemedText>
+            <TouchableOpacity
+              style={styles.clearButton}
+              onPress={() => {
+                setScannedData(null);
+                setScannedType(null);
+              }}
+            >
+              <ThemedText style={styles.clearButtonText}>Clear</ThemedText>
+            </TouchableOpacity>
+          </View>
+        )}
+        
         <TouchableOpacity
           style={styles.toggleButton}
           onPress={() => setCameraEnabled(!cameraEnabled)}
@@ -163,5 +203,42 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 16,
+  },
+  scanResult: {
+    marginTop: 20,
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 8,
+    width: '90%',
+    borderWidth: 2,
+    borderColor: '#2E7D32',
+  },
+  scanResultTitle: {
+    color: '#2E7D32',
+    fontWeight: '700',
+    fontSize: 18,
+    marginBottom: 8,
+  },
+  scanResultData: {
+    color: '#000',
+    fontSize: 16,
+    marginBottom: 5,
+  },
+  scanResultType: {
+    color: '#666',
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  clearButton: {
+    backgroundColor: '#d32f2f',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    alignSelf: 'flex-start',
+  },
+  clearButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });
