@@ -14,10 +14,9 @@ export default function HomeScreen() {
     router.push('/filters');
   };
 
-  // debug: log asset resolution
+  // debug: log background variable
   React.useEffect(() => {
-    const resolved = Image.resolveAssetSource(background);
-    console.log('background asset', resolved);
+    console.log('background asset', background);
   }, []);
 
   return (
