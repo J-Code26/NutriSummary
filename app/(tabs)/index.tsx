@@ -15,7 +15,7 @@ export default function HomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText type="title" style={styles.title}>Nutrition Filters</ThemedText>
+      <ThemedText type="title" style={styles.title}>NutriSummary</ThemedText>
       <TouchableOpacity style={styles.startButton} onPress={handleStart}>
         <ThemedText style={styles.startButtonText}>Start</ThemedText>
       </TouchableOpacity>
