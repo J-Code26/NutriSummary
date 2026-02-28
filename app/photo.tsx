@@ -15,14 +15,13 @@ function WebCamera({
   isEnabled: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [manualBarcode, setManualBarcode] = React.useState('');
   const [isScanning, setIsScanning] = React.useState(false);
   const [debugInfo, setDebugInfo] = React.useState('Initializing...');
   const detectedRef = useRef(false);
   const codeReaderRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const scanIntervalRef = useRef<any>(null);
   const frameCountRef = useRef(0);
 
   useEffect(() => {
@@ -39,7 +38,7 @@ function WebCamera({
       return;
     }
 
-    // Start barcode scanner with canvas frame capture
+    // Start barcode scanner using ZXing continuous decoding (like a grocery store scanner)
     const startScanner = async () => {
       try {
         const msg = 'Starting barcode scanner...';
@@ -52,8 +51,8 @@ function WebCamera({
         // Wait for video element to be ready
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        if (!videoRef.current || !canvasRef.current) {
-          const err = 'Video or canvas element not found';
+        if (!videoRef.current) {
+          const err = 'Video element not found';
           console.error(err);
           setDebugInfo(err);
           return;
@@ -64,8 +63,8 @@ function WebCamera({
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             facingMode: 'environment',
-            width: { ideal: 640 },
-            height: { ideal: 480 }
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
           }
         });
         streamRef.current = stream;
@@ -85,70 +84,49 @@ function WebCamera({
           }, { once: true });
         });
         
-        setDebugInfo(`Video dimensions: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
-        
+        setDebugInfo('Creating ZXing continuous scanner...');
         codeReaderRef.current = new BrowserMultiFormatReader();
-        setDebugInfo('ZXing reader created');
         
         setIsScanning(true);
         frameCountRef.current = 0;
         
-        // Capture frames periodically and scan them
-        scanIntervalRef.current = setInterval(async () => {
-          if (!videoRef.current || !canvasRef.current || !codeReaderRef.current) return;
-          
-          try {
-            frameCountRef.current++;
-            const ctx = canvasRef.current.getContext('2d');
-            if (!ctx) return;
-            
-            // Set canvas size to match video
-            canvasRef.current.width = videoRef.current.videoWidth;
-            canvasRef.current.height = videoRef.current.videoHeight;
-            
-            // Draw video frame to canvas
-            ctx.drawImage(videoRef.current, 0, 0);
-            
-            // Log every 10th frame
-            if (frameCountRef.current % 10 === 0) {
-              console.log(`Frame ${frameCountRef.current} scanned, canvas size: ${canvasRef.current.width}x${canvasRef.current.height}`);
-            }
-            
-            // Try to decode from canvas
-            try {
-              const result = await codeReaderRef.current.decodeFromCanvas(canvasRef.current);
-              if (result && !detectedRef.current) {
-                const code = result.getText();
-                console.log('✅ Barcode detected:', code);
-                setDebugInfo(`Barcode found: ${code}`);
-                
+        // Use continuous decode with callback for instant scanning
+        // This is the proper API for real-time barcode scanning
+        const decodePromise = codeReaderRef.current.decodeFromVideoElement(
+          videoRef.current,
+          (result, error) => {
+            if (result) {
+              frameCountRef.current++;
+              const code = result.getText();
+              const format = result.getBarcodeFormat()?.toString() || 'unknown';
+              console.log('✅ Barcode detected:', code, 'Format:', format);
+              setDebugInfo(`Barcode found: ${code}`);
+              
+              if (!detectedRef.current) {
                 detectedRef.current = true;
                 onBarcodeScanned({
-                  type: result.getBarcodeFormat()?.toString() || 'unknown',
+                  type: format,
                   data: code
                 });
                 
-                // Reset detection flag after 3 seconds
+                // Short 1.5 second cooldown to allow picking up another barcode quickly
                 setTimeout(() => {
                   detectedRef.current = false;
                   setDebugInfo('Ready for next barcode');
-                }, 3000);
-              }
-            } catch (e: any) {
-              // No barcode in this frame, silently continue
-              // Only log errors that aren't "not found" errors
-              if (frameCountRef.current % 30 === 0) {
-                setDebugInfo(`Scanned ${frameCountRef.current} frames, no barcode yet`);
+                }, 1500);
               }
             }
-          } catch (err) {
-            console.error('Frame capture error:', err);
-            setDebugInfo(`Error: ${err}`);
+            
+            if (frameCountRef.current % 0 === 0 && frameCountRef.current > 0) {
+              // Only update status occasionally to reduce re-renders
+            }
           }
-        }, 300); // Scan every 300ms
+        );
         
-        setDebugInfo('Scanner started - point at barcode');
-        console.log('✅ Scanner started successfully!');
+        // Store the promise so we can cancel it later
+        scanIntervalRef.current = decodePromise as any;
+        setDebugInfo('✓ Scanner ready - point barcode at camera');
+        console.log('✅ Scanner started with continuous decoding!');
         
       } catch (error: any) {
         console.error('Error starting scanner:', error);
@@ -159,8 +137,13 @@ function WebCamera({
     startScanner();
 
     return () => {
-      if (scanIntervalRef.current) {
-        clearInterval(scanIntervalRef.current);
+      // Cancel the continuous decode
+      if (codeReaderRef.current) {
+        try {
+          codeReaderRef.current.reset();
+        } catch (e) {
+          // Ignore cancel errors
+        }
       }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -202,12 +185,6 @@ function WebCamera({
         }}
       />
       
-      {/* Hidden canvas for barcode scanning */}
-      <canvas 
-        ref={canvasRef as any}
-        style={{ display: 'none' }}
-      />
-      
       {/* Manual barcode input overlay */}
       <View style={styles.manualInputContainer}>
         <TextInput
@@ -230,7 +207,7 @@ function WebCamera({
           {debugInfo}
         </ThemedText>
         <ThemedText style={{ color: '#fff', fontSize: 10, textAlign: 'center' }}>
-          {isScanning ? `Scanned ${frameCountRef.current} frames` : 'Starting camera...'}
+          {isScanning ? '🔍 Scanning...' : 'Starting...'}
         </ThemedText>
       </View>
     </View>
