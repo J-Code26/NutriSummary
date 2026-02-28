@@ -1,6 +1,6 @@
+import * as FileSystem from 'expo-file-system';
 import React, { useEffect } from 'react';
 import { Modal, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
-import * as FileSystem from 'expo-file-system';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -155,9 +155,9 @@ export default function FiltersScreen() {
       gender,
     };
 
-    FileSystem.writeAsStringAsync(fileUri, JSON.stringify(data), {
-      encoding: FileSystem.EncodingType.UTF8,
-    }).catch((e) => console.warn('Failed to write filters file', e));
+    // omit encoding option to avoid issues on web (EncodingType may be undefined)
+    FileSystem.writeAsStringAsync(fileUri, JSON.stringify(data))
+      .catch((e) => console.warn('Failed to write filters file', e));
   }, [allergies, diets, medicalRestrictions, religions, weight, age, height, gender]);
 
   return (
