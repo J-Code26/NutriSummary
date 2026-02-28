@@ -23,6 +23,7 @@ export default function HomeScreen() {
     <ImageBackground source={background} style={styles.container} resizeMode="cover">
       <ThemedView style={styles.overlay}>
         <ThemedText>Debug: Screen loaded</ThemedText>
+        <ThemedText>{JSON.stringify(background)}</ThemedText>
         <TouchableOpacity style={styles.startButton} onPress={handleStart}>
           <ThemedText style={styles.startButtonText}>Start</ThemedText>
         </TouchableOpacity>
