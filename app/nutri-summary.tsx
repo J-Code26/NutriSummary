@@ -1,10 +1,82 @@
 import React from 'react';
-import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, TextInput, View, TouchableOpacity, Modal } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
+// custom multi-select dropdown component
+function MultiSelectDropdown({
+  label,
+  options,
+  selected,
+  setSelected,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  setSelected: (v: string[]) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+
+  const toggle = (item: string) => {
+    if (selected.includes(item)) {
+      setSelected(selected.filter((i) => i !== item));
+    } else {
+      setSelected([...selected, item]);
+    }
+  };
+
+  return (
+    <View style={styles.field}>
+      <ThemedText style={styles.label}>{label}</ThemedText>
+      <TouchableOpacity
+        style={styles.dropdown}
+        onPress={() => setOpen(true)}
+      >
+        <ThemedText>
+          {selected.length > 0 ? selected.join(', ') : `Select ${label.toLowerCase()}`}
+        </ThemedText>
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ScrollView>
+              {options.map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  onPress={() => toggle(opt)}
+                  style={styles.option}
+                >
+                  <ThemedText>
+                    {selected.includes(opt) ? '☑️ ' : '⬜️ '}
+                    {opt}
+                  </ThemedText>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setOpen(false)}
+            >
+              <ThemedText>Done</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
 export default function FiltersScreen() {
+  const [allergies, setAllergies] = React.useState<string[]>([]);
+  const [diets, setDiets] = React.useState<string[]>([]);
+  const [medicalRestrictions, setMedicalRestrictions] = React.useState<string[]>([]);
+  const [religions, setReligions] = React.useState<string[]>([]);
+
+  const [weight, setWeight] = React.useState('');
+  const [age, setAge] = React.useState('');
+  const [gender, setGender] = React.useState('');
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -12,22 +84,101 @@ export default function FiltersScreen() {
           Filters
         </ThemedText>
 
-        {[
-          'Allergies',
-          'Diets',
-          'Weight/Age/Gender',
-          'Medical Restrictions',
-          'Religion/Culture',
-          'Personal Preferences',
-          'Location and Availability',
-          'Disabilities',
-          'Illnesses',
-        ].map((label) => (
-          <View key={label} style={styles.field}>
-            <ThemedText style={styles.label}>{label}</ThemedText>
-            <TextInput style={styles.input} placeholder={`Enter ${label.toLowerCase()}`} />
-          </View>
-        ))}
+        <MultiSelectDropdown
+          label="Allergies"
+          options={[
+            'Peanuts',
+            'Tree Nuts',
+            'Soy',
+            'Shellfish',
+            'Eggs',
+            'Dairy',
+            'Wheat',
+            'Sesame',
+            'Artificial sweeteners',
+            'Sugar alcohol',
+            'Seed oils',
+            'High-fructose corn syrup',
+          ]}
+          selected={allergies}
+          setSelected={setAllergies}
+        />
+
+        <MultiSelectDropdown
+          label="Diets"
+          options={[
+            'Keto',
+            'Vegan',
+            'Pescetarian',
+            'Dairy-free',
+            'Gluten-free',
+            'Carnivore',
+            'Mediterranean',
+            'Paleo',
+            'High-Protein',
+            'Pork-free',
+          ]}
+          selected={diets}
+          setSelected={setDiets}
+        />
+
+        <View style={styles.field}>
+          <ThemedText style={styles.label}>Weight</ThemedText>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter weight"
+            value={weight}
+            onChangeText={setWeight}
+            keyboardType="numeric"
+          />
+        </View>
+
+        <View style={styles.field}>
+          <ThemedText style={styles.label}>Age</ThemedText>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter age"
+            value={age}
+            onChangeText={setAge}
+            keyboardType="numeric"
+          />
+        </View>
+
+        <View style={styles.field}>
+          <ThemedText style={styles.label}>Gender</ThemedText>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter gender code"
+            value={gender}
+            onChangeText={setGender}
+            keyboardType="numeric"
+          />
+        </View>
+
+        <MultiSelectDropdown
+          label="Medical Restrictions"
+          options={[
+            'Lactose Intollerance',
+            'Celiac Disease / Gluten Intolerance',
+            'Common Diabetes Limitations',
+            'Low Sodium Restrictions',
+            'Cholesterol Restrictions',
+            'Crohn\'s Disease',
+          ]}
+          selected={medicalRestrictions}
+          setSelected={setMedicalRestrictions}
+        />
+
+        <MultiSelectDropdown
+          label="Religion"
+          options={[
+            'Common Islamic Dietary Law (Halal and Haram)',
+            'Common Jewish Dietary Law (Kosher)',
+          ]}
+          selected={religions}
+          setSelected={setReligions}
+        />
+
       </ScrollView>
     </ThemedView>
   );
@@ -56,5 +207,34 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingHorizontal: 10,
     height: 40,
+  },
+  dropdown: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    height: 40,
+    justifyContent: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '80%',
+    maxHeight: '70%',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 20,
+  },
+  option: {
+    paddingVertical: 10,
+  },
+  closeButton: {
+    marginTop: 10,
+    alignSelf: 'flex-end',
+    padding: 10,
   },
 });
