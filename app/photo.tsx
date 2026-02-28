@@ -16,6 +16,7 @@ function WebCamera({
 }) {
   const scannerRef = useRef<any>(null);
   const [hasStarted, setHasStarted] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const scannerIdRef = useRef('barcode-scanner-' + Math.random().toString(36).substr(2, 9));
 
   useEffect(() => {
@@ -28,12 +29,26 @@ function WebCamera({
       return;
     }
 
-    // Start camera for web
+    // Start camera for web - add a delay to ensure DOM is ready
     const startScanner = async () => {
       try {
+        console.log('Starting web barcode scanner...');
+        setError(null);
+        
+        // Wait a bit for DOM to be ready
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
         // Dynamically import html5-qrcode for web only
         const { Html5Qrcode } = await import('html5-qrcode');
         
+        const element = document.getElementById(scannerIdRef.current);
+        if (!element) {
+          console.error('Scanner element not found:', scannerIdRef.current);
+          setError('Scanner element not found');
+          return;
+        }
+        
+        console.log('Creating Html5Qrcode instance...');
         if (!scannerRef.current) {
           scannerRef.current = new Html5Qrcode(scannerIdRef.current);
         }
@@ -43,6 +58,7 @@ function WebCamera({
           qrbox: { width: 250, height: 150 }
         };
 
+        console.log('Starting scanner...');
         await scannerRef.current.start(
           { facingMode: 'environment' },
           config,
@@ -58,9 +74,11 @@ function WebCamera({
           }
         );
         
+        console.log('Scanner started successfully!');
         setHasStarted(true);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error starting scanner:', error);
+        setError(error?.message || 'Failed to start scanner');
       }
     };
 
@@ -81,15 +99,25 @@ function WebCamera({
     );
   }
 
+  if (error) {
+    return (
+      <View style={[styles.cameraBox, styles.cameraOffBox]}>
+        <ThemedText style={{ color: '#d32f2f', textAlign: 'center', padding: 20 }}>
+          Error: {error}
+        </ThemedText>
+      </View>
+    );
+  }
+
+  // For web, we need to return the div in a way React Native Web can handle
   return (
-    <View style={styles.cameraBox}>
+    <View style={{ width: '100%', height: '100%', position: 'relative' }}>
       <div 
         id={scannerIdRef.current}
         style={{
           width: '100%',
           height: '100%',
-          borderRadius: 12,
-          overflow: 'hidden'
+          position: 'relative'
         }}
       />
     </View>
