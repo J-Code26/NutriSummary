@@ -1,22 +1,9 @@
 import React from 'react';
-import { StyleSheet } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+// render filter screen directly as the new root
+import FiltersScreen from '../nutri-summary';
 
 export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <ThemedText type="title">Home</ThemedText>
-      <ThemedText>Welcome back!</ThemedText>
-    </ThemedView>
-  );
+  return <FiltersScreen />;
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
