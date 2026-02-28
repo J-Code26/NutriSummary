@@ -189,7 +189,7 @@ export default function FiltersScreen() {
             style={styles.input}
             placeholder="Enter weight (lbs)"
             value={weight}
-            onChangeText={setWeight}
+            onChangeText={(t) => setWeight(t.replace(/[^0-9]/g, ''))}
             keyboardType="numeric"
           />
         </View>
@@ -200,7 +200,7 @@ export default function FiltersScreen() {
             style={styles.input}
             placeholder="Enter age (years)"
             value={age}
-            onChangeText={setAge}
+            onChangeText={(t) => setAge(t.replace(/[^0-9]/g, ''))}
             keyboardType="numeric"
           />
         </View>
@@ -211,7 +211,7 @@ export default function FiltersScreen() {
             style={styles.input}
             placeholder="Enter height (inches)"
             value={height}
-            onChangeText={setHeight}
+            onChangeText={(t) => setHeight(t.replace(/[^0-9]/g, ''))}
             keyboardType="numeric"
           />
         </View>
